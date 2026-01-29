@@ -87,6 +87,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     // In development, connect directly to backend; in production, use same host
+    // For reverse proxy, WebSocket should go through the same host
     const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${wsHost}/ws/${roomId}/${playerId}`;

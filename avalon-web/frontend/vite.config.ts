@@ -12,7 +12,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
-    allowedHosts: ['ai.easycloud.vip'],
+    allowedHosts: ['ai.easycloud.vip', 'ai6.easycloud.vip'],
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:8000',
