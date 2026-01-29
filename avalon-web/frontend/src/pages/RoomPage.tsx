@@ -32,6 +32,27 @@ export default function RoomPage() {
     };
   }, [roomId, playerId]);
 
+  // Auto leave room when page is closed/refreshed
+  useEffect(() => {
+    if (!roomId || !playerId) return;
+
+    const handleBeforeUnload = () => {
+      // Use sendBeacon for reliable delivery on page close
+      const apiHost = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '';
+      const url = `${apiHost}/api/rooms/${roomId}/leave?player_id=${playerId}`;
+      navigator.sendBeacon(url);
+    };
+
+    // Listen for page close/refresh
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+    };
+  }, [roomId, playerId]);
+
   // Refresh room data when relevant messages arrive
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];

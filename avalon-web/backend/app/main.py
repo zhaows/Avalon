@@ -3,13 +3,15 @@ FastAPI main application - Avalon Web Game Server.
 """
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Dict
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from typing import Dict, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import json
 from datetime import datetime
+from pathlib import Path
+from pydantic import BaseModel
 
 from .models import (
     CreateRoomRequest, JoinRoomRequest, AddAIRequest,
@@ -22,6 +24,43 @@ from .game_engine import GameEngine
 
 # Store active game engines
 game_engines: Dict[str, GameEngine] = {}
+
+# Analytics data file path
+ANALYTICS_FILE = Path(__file__).parent.parent / "analytics_data.json"
+
+
+def load_analytics() -> dict:
+    """Load analytics data from file."""
+    if ANALYTICS_FILE.exists():
+        try:
+            with open(ANALYTICS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        "total_visits": 0,
+        "unique_visitors": set(),
+        "page_views": {},
+        "daily_visits": {},
+        "visits": []
+    }
+
+
+def save_analytics(data: dict):
+    """Save analytics data to file."""
+    # Convert set to list for JSON serialization
+    save_data = data.copy()
+    if isinstance(save_data.get("unique_visitors"), set):
+        save_data["unique_visitors"] = list(save_data["unique_visitors"])
+    with open(ANALYTICS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(save_data, f, ensure_ascii=False, indent=2)
+
+
+# Global analytics data
+analytics_data = load_analytics()
+# Convert unique_visitors back to set
+if isinstance(analytics_data.get("unique_visitors"), list):
+    analytics_data["unique_visitors"] = set(analytics_data["unique_visitors"])
 
 
 @asynccontextmanager
@@ -47,6 +86,83 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ==================== Analytics API ====================
+
+class TrackEventRequest(BaseModel):
+    event: str
+    page: str
+    visitor_id: Optional[str] = None
+    referrer: Optional[str] = None
+    screen_width: Optional[int] = None
+    screen_height: Optional[int] = None
+
+
+@app.post("/api/analytics/track")
+async def track_event(request: TrackEventRequest, req: Request):
+    """Track a page view or event."""
+    global analytics_data
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    timestamp = datetime.now().isoformat()
+    
+    # Get client info
+    client_ip = req.client.host if req.client else "unknown"
+    user_agent = req.headers.get("user-agent", "unknown")
+    
+    # Increment total visits
+    analytics_data["total_visits"] += 1
+    
+    # Track unique visitors by visitor_id or IP
+    visitor_key = request.visitor_id or client_ip
+    if isinstance(analytics_data["unique_visitors"], set):
+        analytics_data["unique_visitors"].add(visitor_key)
+    else:
+        analytics_data["unique_visitors"] = {visitor_key}
+    
+    # Track page views
+    page = request.page
+    if page not in analytics_data["page_views"]:
+        analytics_data["page_views"][page] = 0
+    analytics_data["page_views"][page] += 1
+    
+    # Track daily visits
+    if today not in analytics_data["daily_visits"]:
+        analytics_data["daily_visits"][today] = 0
+    analytics_data["daily_visits"][today] += 1
+    
+    # Store visit record (keep last 1000)
+    visit_record = {
+        "timestamp": timestamp,
+        "event": request.event,
+        "page": page,
+        "visitor_id": visitor_key,
+        "user_agent": user_agent[:200],  # Truncate long user agents
+        "referrer": request.referrer,
+        "screen": f"{request.screen_width}x{request.screen_height}" if request.screen_width else None
+    }
+    analytics_data["visits"].append(visit_record)
+    analytics_data["visits"] = analytics_data["visits"][-1000:]  # Keep last 1000
+    
+    # Save to file
+    save_analytics(analytics_data)
+    
+    return {"success": True}
+
+
+@app.get("/api/analytics/stats")
+async def get_analytics_stats():
+    """Get analytics statistics."""
+    unique_count = len(analytics_data["unique_visitors"]) if isinstance(analytics_data["unique_visitors"], set) else len(set(analytics_data["unique_visitors"]))
+    
+    return {
+        "total_visits": analytics_data["total_visits"],
+        "unique_visitors": unique_count,
+        "page_views": analytics_data["page_views"],
+        "daily_visits": analytics_data["daily_visits"],
+        "recent_visits": analytics_data["visits"][-20:]  # Last 20 visits
+    }
 
 
 # ==================== Room API ====================
