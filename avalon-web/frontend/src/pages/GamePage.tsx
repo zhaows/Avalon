@@ -320,7 +320,17 @@ export default function GamePage() {
                   className="px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-medium bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-all"
                   title="滚动到最新消息"
                 >
-                  ⬇️ 最新
+                  ⬇️ <span className="hidden md:inline">最新</span>
+                </button>
+              )}
+              {isHost && gameState?.is_running && (
+                <button
+                  onClick={handleEndGameClick}
+                  className="px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-xs md:text-sm font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all flex items-center gap-1"
+                  title="结束本局游戏"
+                >
+                  <span>🛑</span>
+                  <span className="hidden md:inline">结束</span>
                 </button>
               )}
             </div>
@@ -520,16 +530,6 @@ export default function GamePage() {
           )}
         </div>
       </div>
-
-      {/* Fixed exit button at bottom-right corner - only for host */}
-      {isHost && (
-        <button
-          onClick={handleEndGameClick}
-          className="fixed bottom-4 right-4 md:bottom-6 md:right-6 btn btn-danger shadow-xl z-50 text-sm md:text-base px-3 md:px-4 py-2"
-        >
-          <span>🎮</span> <span className="hidden md:inline">结束本局</span><span className="md:hidden">结束</span>
-        </button>
-      )}
 
       {/* Mobile panel for role & players */}
       {showMobilePanel && (
