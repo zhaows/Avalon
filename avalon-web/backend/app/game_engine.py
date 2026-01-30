@@ -68,7 +68,7 @@ PLAYER_PROMPT_TEMPLATE = """
     你的角色是：{role}。
     请根据你的角色和游戏进程，做出合理的决策和行动，你的目标是帮助你的阵营获胜。
     你的可能行动如下：
-    1. 发言时，直接输出发言结果，不要输出内心想法，请注意不要暴露你的真实身份和信息, 可以适当误导其他玩家, 以保护你的阵营利益, 注意你的发言其他玩家都能看到。
+    1. 发言时，直接输出发言结果，不要输出内心想法，请注意不要暴露你的真实身份和信息, 可以适当误导其他玩家, 以保护你的阵营利益, 注意你的发言其他玩家都能看到。发言时不需要投票
     2. 投票队长提议的队伍时，你可以根据你的阵营利益，选择支持或反对队长提议的队伍, 你的投票其他玩家看不到。以<我的投票是: xxxx>的格式告诉主持人你的投票选择。发言与投票不同时进行
     3. 投票做任务时，你可以根据你的阵营利益，选择出成功票或失败票, 你的投票选择其他玩家看不到。以<我的投票是: xxxx>的格式告诉主持人你的投票选择。发言与投票不同时进行
     4. 当主持人把你分配为队长时，你需要选择合适的队员组队，并说服其他玩家投票通过你的队伍。
@@ -96,6 +96,7 @@ HOST_PROMPT_TEMPLATE = """
     不要把玩家的投票信息和执行任务的结果透露给其他玩家。玩家回复后，表示感谢就行，不用总结。
     投票结束时，需要总结有几票同意，几票反对, 几张失败票, 几张成功票, 并宣布任务结果。
     投票、发言、执行任务等环节需要你来组织和引导, 把任务交给对应的玩家即可，然后玩家把相应的结果交给你。
+    流程是队长组队->所有玩家发言->所有玩家投票->执行任务->公布结果->下一个队长组队, 依次循环直到游戏结束。
     玩家的发言与投票结果可能不一致, 不能简单根据发言来判断玩家的投票, 需要玩家明确完成投票动作。
     在发言时，请注意保持中立和客观，不偏袒任何一方, 也不要透露任何玩家的身份信息。
     游戏结束时, 输出terminate。
@@ -289,7 +290,7 @@ class GameEngine:
         await future_sync  # Wait for sync signal
 
         # Small delay to ensure frontend has connected (handles page navigation timing)
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(0.5)
 
         # Notify frontend that we're waiting for input
         await self.broadcast("waiting_input", {
@@ -400,7 +401,8 @@ class GameEngine:
         termination = TextMentionTermination("terminate")
         self.team = Swarm(
             [host_agent] + player_agents,
-            termination_condition=termination
+            termination_condition=termination,
+            max_turns=500,
         )
         
         self.is_running = True
@@ -480,8 +482,9 @@ class GameEngine:
                             "roles": self.roles_assignment
                         })
                         break
-                    # sleep 
-                    await asyncio.sleep(3.0)
+                    # sleep 根据display_content长度调整
+                    sleep_time = min(max(len(display_content) / 20.0, 0.5), 8.0)
+                    await asyncio.sleep(sleep_time)
                         
                 except Exception as e:
                     print(f'Error processing message: {e}')

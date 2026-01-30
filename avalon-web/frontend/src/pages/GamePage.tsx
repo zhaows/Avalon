@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { gameApi } from '../api';
+import { gameApi, roomApi } from '../api';
 import { useGameStore } from '../store/gameStore';
 import { Player, Role, Team } from '../types';
 import RoleCard from '../components/RoleCard';
@@ -28,7 +28,7 @@ interface GameStateResponse {
 export default function GamePage() {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
-  const { playerId, playerName, messages, connect, isConnected, sendMessage } = useGameStore();
+  const { playerId, playerName, messages, connect, disconnect, isConnected, sendMessage } = useGameStore();
   
   const [gameState, setGameState] = useState<GameStateResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,6 +149,18 @@ export default function GamePage() {
       await gameApi.restart(roomId, playerId);
       // Navigate back to room page to start a new game
       navigate(`/room/${roomId}`);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleLeaveRoom = async () => {
+    if (!roomId || !playerId) return;
+    
+    try {
+      await roomApi.leave(roomId, playerId);
+      disconnect();
+      navigate('/');
     } catch (err: any) {
       setError(err.message);
     }
@@ -521,7 +533,7 @@ export default function GamePage() {
                 <span>🔄</span> 重新开始
               </button>
               <button
-                onClick={() => navigate('/')}
+                onClick={handleLeaveRoom}
                 className="btn btn-secondary text-sm md:text-base px-3 md:px-4"
               >
                 返回首页
