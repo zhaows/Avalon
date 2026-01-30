@@ -79,6 +79,9 @@ PLAYER_PROMPT_TEMPLATE = """
     根据你的角色-{role}, 你的角色能提前获取以下信息，请充分利用该信息进行游戏：
     {info}
     你的角色的注意事项是：{role_notes}
+
+    ## 注意事项
+    1. 发言/投票/做任务后必须handoff给Host, 不要输出"handoff to xxxxx"内容
 """
 
 HOST_PROMPT_TEMPLATE = """
@@ -99,6 +102,8 @@ HOST_PROMPT_TEMPLATE = """
 
     游戏信息如下：
     {game_info}
+    ## 注意事项
+    1. 发言后必须handoff给对应玩家，等待玩家回复。不要输出"handoff to xxxxx"内容
 """
 
 # Role configurations for knowledge
@@ -197,6 +202,7 @@ class GameEngine:
         self.roles_assignment: Dict[str, str] = {}
         self.human_players: Dict[str, str] = {}  # player_name -> player_id mapping for human players
         self._pending_input: Dict[str, asyncio.Future] = {}  # player_name -> Future for pending input
+        self._user_input_sync: Dict[str, asyncio.Future] = {}  # player_name -> Future for sync input
         
         # Create model client
         self.model_client = AzureOpenAIChatCompletionClient(
@@ -273,10 +279,18 @@ class GameEngine:
         Creates a Future and waits for input to be provided via provide_human_input().
         """
         print(f"[GameEngine] Waiting for input from {player_name}, prompt: {prompt}")
-        
+        # Create a future to wait for input
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        future_sync = loop.create_future()
+        self._pending_input[player_name] = future
+        self._user_input_sync[player_name] = future_sync
+
+        await future_sync  # Wait for sync signal
+
         # Small delay to ensure frontend has connected (handles page navigation timing)
-        await asyncio.sleep(0.5)
-        
+        await asyncio.sleep(3.0)
+
         # Notify frontend that we're waiting for input
         await self.broadcast("waiting_input", {
             "player_name": player_name,
@@ -284,11 +298,6 @@ class GameEngine:
         }, self.human_players.get(player_name), player_name)
         
         print(f"[GameEngine] Broadcast waiting_input sent for {player_name}")
-        
-        # Create a future to wait for input
-        loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_input[player_name] = future
         
         try:
             # Wait for input (with timeout)
@@ -300,6 +309,7 @@ class GameEngine:
             return "（超时未响应）"
         finally:
             self._pending_input.pop(player_name, None)
+            self._user_input_sync.pop(player_name, None)
     
     def provide_human_input(self, player_name: str, message: str):
         """
@@ -428,6 +438,8 @@ class GameEngine:
                 try:
                     source = getattr(message, 'source', 'system')
                     content = getattr(message, 'content', str(message))
+                    if source == 'user':
+                        continue  # Skip autogen user messages
                     
                     # Skip transfer messages or non-string content
                     if not isinstance(content, str):
@@ -437,17 +449,28 @@ class GameEngine:
                     
                     # Filter out vote info for broadcast (Host can see all)
                     display_content = content
-                    if source != "Host" and "我的投票是" in content:
+                    if source != "Host":
                         # Only show vote to Host, hide from others
                         display_content = self._filter_vote_for_display(content)
                     
+                    # 判断source是否是人类用户
+                    if source in self.human_players and (not display_content.strip()):
+                        print(f"[GameEngine] Processed message from {source}: {display_content}")
+                        # 创建future等待用户输入
+                        future = self._user_input_sync.get(source)
+                        if future and not future.done():
+                            future.set_result('sync')
+                    
+                    if not display_content.strip():
+                        continue # Skip empty messages after filtering
+
                     # Broadcast message
                     await self.broadcast("game_message", {
                         "source": source,
                         "content": display_content,
                         "original_content": content if source == "Host" else None
                     }, None, source)
-                    
+
                     # Check for game end
                     if "terminate" in content.lower():
                         self.is_running = False
@@ -457,6 +480,8 @@ class GameEngine:
                             "roles": self.roles_assignment
                         })
                         break
+                    # sleep 
+                    await asyncio.sleep(3.0)
                         
                 except Exception as e:
                     print(f'Error processing message: {e}')
@@ -472,6 +497,9 @@ class GameEngine:
         if "我的投票是" in content:
             # Replace vote info with placeholder
             return re.sub(r'我的投票是[：:]\s*\S+', '[投票已提交]', content)
+        if "###" in content:
+            # Replace other sensitive info with placeholder
+            return re.sub(r'###\s*\S+', '[投票已提交]', content)
         return content
     
     def get_player_role_info(self, player_id: str) -> Optional[dict]:
