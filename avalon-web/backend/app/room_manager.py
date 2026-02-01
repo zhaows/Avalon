@@ -5,7 +5,7 @@ import uuid
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from .models import RoomInfo, PlayerInfo, PlayerType, GameState
+from .models import RoomInfo, PlayerInfo, PlayerType, GameState, AI_DISPLAY_NAMES
 
 
 class RoomManager:
@@ -69,29 +69,40 @@ class RoomManager:
         room.players.append(player)
         return player
     
-    def add_ai_players(self, room_id: str, count: int = 1) -> List[PlayerInfo]:
-        """Add AI players to fill empty slots."""
+    def add_ai_players(self, room_id: str, count: int = 1, names: List[str] = None) -> List[PlayerInfo]:
+        """
+        Add AI players to fill empty slots.
+        names: 可选的AI玩家名字列表，不提供则使用默认中文昵称
+        """
         room = self.get_room(room_id)
         if not room:
             return []
         
         added = []
-        ai_names = ["AI_Alice", "AI_Bob", "AI_Charlie", "AI_Diana", "AI_Eve", "AI_Frank", "AI_Grace"]
         
         for i in range(count):
             if len(room.players) >= room.max_players:
                 break
             
-            # Find unused AI name
+            # 确定AI名字: 优先使用用户提供的名字，否则使用默认中文昵称
             used_names = [p.name for p in room.players]
             ai_name = None
-            for name in ai_names:
-                if name not in used_names:
-                    ai_name = name
-                    break
             
-            if not ai_name:
-                ai_name = f"AI_{len(room.players) + 1}"
+            # 如果用户提供了名字列表，使用对应索引的名字
+            if names and i < len(names) and names[i]:
+                ai_name = names[i]
+                # 检查重复名
+                if ai_name in used_names:
+                    ai_name = f"{ai_name}_{len(room.players) + 1}"
+            else:
+                # 使用默认的中文昵称
+                for name in AI_DISPLAY_NAMES:
+                    if name not in used_names:
+                        ai_name = name
+                        break
+                
+                if not ai_name:
+                    ai_name = f"玩家{len(room.players) + 1}"
             
             player = self.join_room(room_id, ai_name, PlayerType.AI)
             if player:

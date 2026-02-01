@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 import { GameState, GameMessage, Room } from '../types';
 import { toast } from './toastStore';
+import { HostGameState } from '../components/GameStatusPanel';
 
 interface GameStore {
   // Connection state
@@ -16,6 +17,7 @@ interface GameStore {
   
   // Game state
   gameState: GameState | null;
+  hostGameState: HostGameState | null;  // Host输出的详细游戏状态
   messages: GameMessage[];
   
   // WebSocket
@@ -26,6 +28,7 @@ interface GameStore {
   setConnection: (roomId: string, playerId: string, playerName: string) => void;
   setRoom: (room: Room) => void;
   setGameState: (state: GameState) => void;
+  setHostGameState: (state: HostGameState | null) => void;
   addMessage: (message: GameMessage) => void;
   clearMessages: () => void;
   
@@ -45,6 +48,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   playerName: null,
   room: null,
   gameState: null,
+  hostGameState: null,
   messages: [],
   ws: null,
   isConnected: false,
@@ -60,6 +64,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setRoom: (room) => set({ room }),
 
   setGameState: (gameState) => set({ gameState }),
+
+  setHostGameState: (hostGameState) => set({ hostGameState }),
 
   addMessage: (message) => set((state) => ({
     messages: [...state.messages, message]
@@ -165,6 +171,43 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // Handle specific message types
     switch (type) {
+      case 'game_state_update':
+        // Update game state from Host's structured output
+        console.log('Game state update:', data.content);
+        if (data.content) {
+          const stateUpdate = data.content;
+          // 更新 hostGameState 用于显示详细状态
+          set({
+            hostGameState: {
+              phase: stateUpdate.phase,
+              mission_round: stateUpdate.mission_round,
+              captain: stateUpdate.captain,
+              team_members: stateUpdate.team_members,
+              mission_success_count: stateUpdate.mission_success_count || 0,
+              mission_fail_count: stateUpdate.mission_fail_count || 0,
+              reject_count: stateUpdate.reject_count || 0,
+              next_player: stateUpdate.next_player,
+            }
+          });
+          // 同时更新 gameState 中的相关字段
+          const currentState = get().gameState;
+          if (currentState) {
+            set({
+              gameState: {
+                ...currentState,
+                phase: stateUpdate.phase || currentState.phase,
+                current_mission: stateUpdate.mission_round || currentState.current_mission,
+                vote_reject_count: stateUpdate.reject_count ?? currentState.vote_reject_count,
+                mission_results: [
+                  ...Array(stateUpdate.mission_success_count || 0).fill(true),
+                  ...Array(stateUpdate.mission_fail_count || 0).fill(false),
+                ].slice(0, 5),
+              }
+            });
+          }
+        }
+        break;
+
       case 'player_joined':
       case 'player_left':
       case 'player_online':
@@ -219,7 +262,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       case 'game_restart':
         console.log('Game restarted');
-        // Clear messages for new game
+        // Clear messages and host state for new game
+        set({ hostGameState: null });
         get().clearMessages();
         break;
 
@@ -246,6 +290,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       playerName: null,
       room: null,
       gameState: null,
+      hostGameState: null,
       messages: [],
       ws: null,
       isConnected: false,

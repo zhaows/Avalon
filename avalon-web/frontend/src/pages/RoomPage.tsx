@@ -16,6 +16,9 @@ export default function RoomPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [showAINameModal, setShowAINameModal] = useState(false);
+  const [aiNameInput, setAINameInput] = useState('');
+  const [addingAICount, setAddingAICount] = useState(0);
 
   useEffect(() => {
     if (!roomId || !playerId) {
@@ -76,21 +79,37 @@ export default function RoomPage() {
       setRoomData(data);
       setRoom(data);
     } catch (err: any) {
-      setError(err.message);
+      // 房间不存在时直接跳转到首页
+      navigate('/');
+      return;
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddAI = async (count: number) => {
+  const handleAddAI = async (count: number, names?: string[]) => {
     if (!roomId) return;
     
     try {
-      await roomApi.addAI(roomId, count);
+      await roomApi.addAI(roomId, count, names);
       await loadRoom();
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleShowAINameModal = (count: number) => {
+    setAddingAICount(count);
+    setAINameInput('');
+    setShowAINameModal(true);
+  };
+
+  const handleConfirmAddAI = () => {
+    const names = aiNameInput.trim() 
+      ? aiNameInput.split(/[,，\s]+/).filter(n => n.trim()).map(n => n.trim())
+      : undefined;
+    handleAddAI(addingAICount, names);
+    setShowAINameModal(false);
   };
 
   const handleRemoveAI = async (aiPlayerId: string) => {
@@ -284,7 +303,7 @@ export default function RoomPage() {
               
               <div className="flex flex-wrap gap-3">
                 <button
-                  onClick={() => handleAddAI(1)}
+                  onClick={() => handleShowAINameModal(1)}
                   disabled={room.players.length >= 7}
                   className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -293,7 +312,7 @@ export default function RoomPage() {
                 
                 {emptySlots > 1 && (
                   <button
-                    onClick={() => handleAddAI(emptySlots)}
+                    onClick={() => handleShowAINameModal(emptySlots)}
                     disabled={room.players.length >= 7}
                     className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -339,6 +358,46 @@ export default function RoomPage() {
           )}
         </div>
       </div>
+
+      {/* AI Name Input Modal */}
+      {showAINameModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-2xl p-6 w-full max-w-md fade-in">
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <span>🤖</span> 添加AI玩家
+            </h3>
+            <p className="text-slate-400 text-sm mb-4">
+              为 {addingAICount} 个AI玩家设置名字（可选，留空使用默认名字）
+            </p>
+            <input
+              type="text"
+              value={aiNameInput}
+              onChange={(e) => setAINameInput(e.target.value)}
+              placeholder={addingAICount === 1 ? "输入AI名字..." : "用逗号分隔多个名字，如：张三, 李四"}
+              className="input w-full mb-4"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConfirmAddAI();
+                if (e.key === 'Escape') setShowAINameModal(false);
+              }}
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowAINameModal(false)}
+                className="btn bg-slate-600 hover:bg-slate-500 text-white"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmAddAI}
+                className="btn bg-purple-600 hover:bg-purple-500 text-white"
+              >
+                确认添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

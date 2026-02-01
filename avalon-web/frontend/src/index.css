@@ -194,3 +194,21 @@ body {
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
+
+/* Thin scrollbar for compact components */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}

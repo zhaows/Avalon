@@ -3,9 +3,10 @@ Game Engine for Avalon - Using Swarm team from avalon.py
 Directly uses AutoGen Swarm to run the game, streaming messages to frontend.
 """
 import asyncio
+import json
 import random
 import re
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable, Any, Tuple
 from datetime import datetime
 
 from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
@@ -21,6 +22,31 @@ from .models import (
     RoomInfo, GameMessage
 )
 from .config import AZURE_API_KEY, AZURE_ENDPOINT, AZURE_DEPLOYMENT, API_VERSION
+from pydantic import BaseModel
+from typing import Literal
+
+
+# Host输出格式模型
+class HostOutput(BaseModel):
+    """主持人的结构化输出格式"""
+    # 当前游戏阶段
+    phase: Literal["team_select", "speaking", "voting", "mission", "assassinate", "game_over"]
+    # 当前任务轮次 (1-5)
+    mission_round: int
+    # 当前队长的display_name
+    captain: Optional[str] = None
+    # 当前被选中的队员列表 (display_name)
+    team_members: Optional[List[str]] = None
+    # 任务结果: 成功次数
+    mission_success_count: int = 0
+    # 任务结果: 失败次数
+    mission_fail_count: int = 0
+    # 当前轮连续拒绝次数
+    reject_count: int = 0
+    # 下一个要发言/行动的玩家 (display_name)
+    next_player: Optional[str] = None
+    # 主持人的发言内容
+    message: str
 
 
 # Game rules - same as avalon.py
@@ -103,6 +129,33 @@ HOST_PROMPT_TEMPLATE = """
 
     游戏信息如下：
     {game_info}
+
+    ## 输出格式要求
+    你的每次输出必须以JSON格式开头，用```json和```包裹，然后是你要对玩家说的话。示例:
+    ```json
+    {{
+        "phase": "team_select",
+        "mission_round": 1,
+        "captain": "玩家名",
+        "team_members": ["玩家1", "玩家2"],
+        "mission_success_count": 0,
+        "mission_fail_count": 0,
+        "reject_count": 0,
+        "next_player": "下一个玩家名"
+    }}
+    ```
+    你要对玩家说的话...
+
+    各字段说明:
+    - phase: 当前游戏阶段，可选值: "team_select"(队长选人), "speaking"(发言阶段), "voting"(投票阶段), "mission"(执行任务), "assassinate"(刺杀阶段), "game_over"(游戏结束)
+    - mission_round: 当前是第几轮任务 (1-5)
+    - captain: 当前队长的名字
+    - team_members: 当前被选中的队员名字列表，未选择时为空数组[]
+    - mission_success_count: 目前成功的任务数量
+    - mission_fail_count: 目前失败的任务数量  
+    - reject_count: 当前轮连续被否决的次数 (0-4)
+    - next_player: 下一个需要发言/行动的玩家名字
+
     ## 注意事项
     1. 发言后必须handoff给对应玩家，等待玩家回复。不要输出"handoff to xxxxx"内容
 """
@@ -199,11 +252,12 @@ class GameEngine:
         self.human_input_callback = human_input_callback  # Async function to get human input
         self.team = None
         self.is_running = False
-        self.players_info: Dict[str, dict] = {}
-        self.roles_assignment: Dict[str, str] = {}
-        self.human_players: Dict[str, str] = {}  # player_name -> player_id mapping for human players
-        self._pending_input: Dict[str, asyncio.Future] = {}  # player_name -> Future for pending input
-        self._user_input_sync: Dict[str, asyncio.Future] = {}  # player_name -> Future for sync input
+        self.players_info: Dict[str, dict] = {}  # agent_name -> player info
+        self.roles_assignment: Dict[str, str] = {}  # display_name -> role
+        self.human_players: Dict[str, str] = {}  # agent_name -> player_id mapping for human players
+        self._pending_input: Dict[str, asyncio.Future] = {}  # agent_name -> Future for pending input
+        self._user_input_sync: Dict[str, asyncio.Future] = {}  # agent_name -> Future for sync input
+        self._current_phase: str = "team_select"  # 当前游戏阶段
         
         # Create model client
         self.model_client = AzureOpenAIChatCompletionClient(
@@ -232,23 +286,30 @@ class GameEngine:
             print(f"[GameEngine] WARNING: No message_callback set!")
     
     def _assign_roles(self):
-        """Randomly assign roles to players."""
+        """Randomly assign roles to players and set up name mappings."""
         roles = SEVEN_PLAYER_ROLES.copy()
         random.shuffle(roles)
         
         for i, player in enumerate(self.room.players):
             role = roles[i]
-            self.roles_assignment[player.name] = role
+            # 使用Python标识符作为agent_name
+            player.agent_name = f"player_{i + 1}"
+            # display_name 直接使用 player.name（room_manager 已经设置好了正确的名字）
+            player.display_name = player.name
+            
+            self.roles_assignment[player.display_name] = role
             player.role = Role(role)
         
         # Build players_info with role-specific knowledge
-        evil_players = [name for name, role in self.roles_assignment.items() 
-                       if role in ["刺客", "莫甘娜", "奥伯伦"]]
-        merlin_player = [name for name, role in self.roles_assignment.items() if role == "梅林"][0]
-        morgana_player = [name for name, role in self.roles_assignment.items() if role == "莫甘娜"][0]
+        evil_players = [p.display_name for p in self.room.players 
+                       if self.roles_assignment[p.display_name] in ["刺客", "莫甘娜", "奥伯伦"]]
+        merlin_player = [p.display_name for p in self.room.players 
+                        if self.roles_assignment[p.display_name] == "梅林"][0]
+        morgana_player = [p.display_name for p in self.room.players 
+                         if self.roles_assignment[p.display_name] == "莫甘娜"][0]
         
         for player in self.room.players:
-            role = self.roles_assignment[player.name]
+            role = self.roles_assignment[player.display_name]
             config = ROLE_CONFIG[role]
             
             # Determine role-specific info
@@ -257,67 +318,99 @@ class GameEngine:
             elif role == "派西维尔":
                 info = f"知道{merlin_player}和{morgana_player}是梅林和莫甘娜, 但是不知道谁是谁"
             elif role == "刺客":
-                other_evil = [e for e in evil_players if e != player.name and self.roles_assignment[e] != "奥伯伦"]
+                other_evil = [e for e in evil_players if e != player.display_name and self.roles_assignment[e] != "奥伯伦"]
                 info = f"知道{', '.join(other_evil)}是坏人" if other_evil else "无"
             elif role == "莫甘娜":
-                other_evil = [e for e in evil_players if e != player.name and self.roles_assignment[e] != "奥伯伦"]
+                other_evil = [e for e in evil_players if e != player.display_name and self.roles_assignment[e] != "奥伯伦"]
                 info = f"知道{', '.join(other_evil)}是坏人" if other_evil else "无"
             elif role == "奥伯伦":
                 info = "无"
             else:
                 info = "无"
             
-            self.players_info[player.name] = {
+            # 使用agent_name作为key
+            self.players_info[player.agent_name] = {
                 "role": role,
+                "display_name": player.display_name,
                 "personality": config["personality"],
                 "info": info,
                 "role_notes": config["role_notes"]
             }
     
-    async def _get_human_input(self, player_name: str, prompt: str = "") -> str:
+    async def _get_human_input(self, agent_name: str, prompt: str = "") -> str:
         """
         Get input from human player via WebSocket.
         Creates a Future and waits for input to be provided via provide_human_input().
+        agent_name: Python标识符形式的agent名称
         """
-        print(f"[GameEngine] Waiting for input from {player_name}, prompt: {prompt}")
+        # 通过agent_name找到对应的player获取display_name
+        player = self._get_player_by_agent_name(agent_name)
+        display_name = player.display_name if player else agent_name
+        
+        print(f"[GameEngine] Waiting for input from {display_name} ({agent_name}), prompt: {prompt}")
         # Create a future to wait for input
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         future_sync = loop.create_future()
-        self._pending_input[player_name] = future
-        self._user_input_sync[player_name] = future_sync
+        self._pending_input[agent_name] = future
+        self._user_input_sync[agent_name] = future_sync
 
         await future_sync  # Wait for sync signal
 
         # Small delay to ensure frontend has connected (handles page navigation timing)
         await asyncio.sleep(0.5)
 
-        # Notify frontend that we're waiting for input
+        # Notify frontend that we're waiting for input - 使用display_name
         await self.broadcast("waiting_input", {
-            "player_name": player_name,
+            "player_name": display_name,  # 发送display_name给前端
             "prompt": prompt
-        }, self.human_players.get(player_name), player_name)
+        }, self.human_players.get(agent_name), display_name)
         
-        print(f"[GameEngine] Broadcast waiting_input sent for {player_name}")
+        print(f"[GameEngine] Broadcast waiting_input sent for {display_name}")
         
         try:
             # Wait for input (with timeout)
             result = await asyncio.wait_for(future, timeout=300)  # 5 minutes timeout
-            print(f"[GameEngine] Received input from {player_name}: {result}")
+            print(f"[GameEngine] Received input from {display_name}: {result}")
+            # 在投票和任务阶段，自动添加前缀以便在Swarm内屏蔽
+            if self._current_phase in ("voting", "mission"):
+                result = f"<我的投票是: {result}>"
             return result
         except asyncio.TimeoutError:
-            print(f"[GameEngine] Timeout waiting for input from {player_name}")
+            print(f"[GameEngine] Timeout waiting for input from {display_name}")
             return "（超时未响应）"
         finally:
-            self._pending_input.pop(player_name, None)
-            self._user_input_sync.pop(player_name, None)
+            self._pending_input.pop(agent_name, None)
+            self._user_input_sync.pop(agent_name, None)
+    
+    def _get_player_by_agent_name(self, agent_name: str) -> Optional[PlayerInfo]:
+        """通过agent_name查找对应的player"""
+        for player in self.room.players:
+            if player.agent_name == agent_name:
+                return player
+        return None
+    
+    def _get_player_by_display_name(self, display_name: str) -> Optional[PlayerInfo]:
+        """通过display_name查找对应的player"""
+        for player in self.room.players:
+            if player.display_name == display_name:
+                return player
+        return None
     
     def provide_human_input(self, player_name: str, message: str):
         """
         Provide input for a waiting human player.
         Called when frontend sends user input via WebSocket.
+        player_name: 可以是display_name或agent_name
         """
-        future = self._pending_input.get(player_name)
+        # 尝试通过display_name查找对应的player
+        player = self._get_player_by_display_name(player_name)
+        if player:
+            agent_name = player.agent_name
+        else:
+            agent_name = player_name  # 假设传入的就是agent_name
+        
+        future = self._pending_input.get(agent_name)
         if future and not future.done():
             future.set_result(message)
             return True
@@ -325,36 +418,39 @@ class GameEngine:
     
     def _create_agents(self) -> tuple:
         """Create player agents and host agent."""
-        player_names = [p.name for p in self.room.players]
+        # 收集所有agent_name用于handoffs，以及display_name用于提示词
+        agent_names = [p.agent_name for p in self.room.players]
+        display_names = [p.display_name for p in self.room.players]
         player_agents = []
         
         for player in self.room.players:
-            info = self.players_info[player.name]
+            agent_name = player.agent_name
+            display_name = player.display_name
+            info = self.players_info[agent_name]
             
             # Check if this is a human player
             is_human = player.player_type == PlayerType.HUMAN
             
             if is_human:
-                # Create input function for this specific player
-                player_name = player.name
-                
-                def make_input_func(pname):
+                # Create input function for this specific player (使用agent_name作为key)
+                def make_input_func(aname):
                     async def input_func(prompt: str = "", cancellation_token = None) -> str:
-                        return await self._get_human_input(pname, prompt)
+                        return await self._get_human_input(aname, prompt)
                     return input_func
                 
-                # Use UserProxyAgent for human players
+                # Use UserProxyAgent for human players, name使用Python标识符
                 agent = UserProxyAgent(
-                    name=player.name,
-                    input_func=make_input_func(player_name)
+                    name=agent_name,
+                    input_func=make_input_func(agent_name)
                 )
-                self.human_players[player.name] = player.id
+                self.human_players[agent_name] = player.id
             else:
                 # Use AI agent for AI players
+                # 在提示词中使用display_name让AI知道自己的显示名
                 prompt = PLAYER_PROMPT_TEMPLATE.format(
                     avalon_rules=AVALON_RULES,
-                    all_players=player_names,
-                    player_name=player.name,
+                    all_players=display_names,  # 使用显示名列表
+                    player_name=display_name,   # 使用显示名
                     role=info["role"],
                     personality=info["personality"],
                     info=info["info"],
@@ -363,7 +459,7 @@ class GameEngine:
                 
                 player_context = FilterVoteInfoContext()
                 agent = AwalonAssistantAgent(
-                    name=player.name,
+                    name=agent_name,  # 使用Python标识符
                     handoffs=["Host"],
                     model_client=self.model_client,
                     model_context=player_context,
@@ -371,17 +467,22 @@ class GameEngine:
                 )
             player_agents.append(agent)
         
-        # Create host agent
+        # Create host agent - 使用display_name映射让Host知道玩家名字
+        # 构建游戏信息，包含agent_name到display_name的映射
+        game_info_with_mapping = {
+            "roles": self.roles_assignment,
+            "name_mapping": {p.agent_name: p.display_name for p in self.room.players}
+        }
         host_prompt = HOST_PROMPT_TEMPLATE.format(
             avalon_rules=AVALON_RULES,
-            game_info=self.roles_assignment
+            game_info=game_info_with_mapping
         )
         
         host_agent = AwalonAssistantAgent(
             name="Host",
-            handoffs=player_names,
+            handoffs=agent_names,  # 使用agent_name列表
             model_client=self.model_client,
-            system_message=host_prompt
+            system_message=host_prompt,
         )
         
         return host_agent, player_agents
@@ -414,7 +515,7 @@ class GameEngine:
             "players": [
                 {
                     "id": p.id,
-                    "name": p.name,
+                    "name": p.display_name,  # 使用display_name
                     "seat": p.seat,
                     "player_type": p.player_type.value
                 }
@@ -424,14 +525,14 @@ class GameEngine:
         
         # Send role info to each player (will be filtered by frontend per player)
         for player in self.room.players:
-            info = self.players_info[player.name]
+            info = self.players_info[player.agent_name]
             await self.broadcast("role_assigned", {
                 "player_id": player.id,
-                "player_name": player.name,
+                "player_name": player.display_name,  # 使用display_name
                 "role": info["role"],
                 "team": ROLE_CONFIG[info["role"]]["team"],
                 "info": info["info"]
-            }, player.id, player.name)
+            }, player.id, player.display_name)
         
         # Run the game stream
         try:
@@ -449,29 +550,46 @@ class GameEngine:
                     if 'ransfer' in content:
                         continue
                     
-                    # Filter out vote info for broadcast (Host can see all)
-                    display_content = content
-                    if source != "Host":
-                        # Only show vote to Host, hide from others
-                        display_content = self._filter_vote_for_display(content)
-                    
-                    # 判断source是否是人类用户
-                    if source in self.human_players and (not display_content.strip()):
-                        print(f"[GameEngine] Processed message from {source}: {display_content}")
-                        # 创建future等待用户输入
+                    # 判断source是否是人类用户 (agent_name) - 先处理同步信号
+                    if source in self.human_players and (not content.strip()):
+                        print(f"[GameEngine] Human player sync message from {source}")
                         future = self._user_input_sync.get(source)
                         if future and not future.done():
                             future.set_result('sync')
                     
-                    if not display_content.strip():
-                        continue # Skip empty messages after filtering
+                    # 跳过空消息
+                    if not content.strip():
+                        continue
+                    
+                    # 设置用于显示的内容和来源
+                    display_content = content
+                    display_source = source
+                    
+                    # 处理Host的输出 - 解析JSON状态
+                    if source == "Host":
+                        game_state, message_text = self._parse_host_output(content)
+                        if game_state:
+                            # 更新当前阶段
+                            if "phase" in game_state:
+                                self._current_phase = game_state["phase"]
+                            # 广播游戏状态更新
+                            await self.broadcast("game_state_update", game_state)
+                        # 使用解析后的消息文本，或者原始内容
+                        display_content = message_text if message_text else content
+                    else:
+                        # 将agent_name转换为display_name用于显示
+                        player = self._get_player_by_agent_name(source)
+                        if player:
+                            display_source = player.display_name
+                        # 在投票和任务阶段，屏蔽玩家的发言内容
+                        if self._current_phase in ("voting", "mission"):
+                            display_content = "[投票已提交]"
 
-                    # Broadcast message
+                    # Broadcast message - 使用display_source而不是agent_name
                     await self.broadcast("game_message", {
-                        "source": source,
+                        "source": display_source,
                         "content": display_content,
-                        "original_content": content if source == "Host" else None
-                    }, None, source)
+                    }, None, display_source)
 
                     # Check for game end
                     if "terminate" in content.lower():
@@ -495,24 +613,41 @@ class GameEngine:
         finally:
             self.is_running = False
     
-    def _filter_vote_for_display(self, content: str) -> str:
-        """Filter vote information for public display."""
-        if "我的投票是" in content:
-            # Replace vote info with placeholder
-            return re.sub(r'我的投票是[：:]\s*\S+', '[投票已提交]', content)
-        if "###" in content:
-            # Replace other sensitive info with placeholder
-            return re.sub(r'###\s*\S+', '[投票已提交]', content)
-        return content
+    def _parse_host_output(self, content: str) -> Tuple[Optional[dict], str]:
+        """
+        从Host的输出中解析JSON状态和消息文本。
+        返回: (game_state_dict, message_text)
+        """
+        game_state = None
+        message_text = content
+        
+        # 尝试匹配 ```json ... ``` 格式
+        json_match = re.search(r'```json\s*\n?(.*?)\n?```', content, re.DOTALL)
+        if json_match:
+            try:
+                json_str = json_match.group(1).strip()
+                game_state = json.loads(json_str)
+                # 提取JSON块之后的文本作为消息
+                message_text = content[json_match.end():].strip()
+                # 如果JSON前面也有文本，合并
+                prefix_text = content[:json_match.start()].strip()
+                if prefix_text:
+                    message_text = prefix_text + "\n" + message_text if message_text else prefix_text
+            except json.JSONDecodeError as e:
+                print(f"[GameEngine] Failed to parse JSON from Host output: {e}")
+        
+        return game_state, message_text
     
     def get_player_role_info(self, player_id: str) -> Optional[dict]:
         """Get role info for a specific player."""
         for player in self.room.players:
             if player.id == player_id:
-                info = self.players_info.get(player.name)
+                agent_name = player.agent_name
+                info = self.players_info.get(agent_name)
                 if info:
                     return {
                         "role": info["role"],
+                        "display_name": info["display_name"],
                         "team": ROLE_CONFIG[info["role"]]["team"],
                         "info": info["info"],
                         "role_notes": info["role_notes"]

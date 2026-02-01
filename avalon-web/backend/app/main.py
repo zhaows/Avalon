@@ -264,7 +264,7 @@ async def add_ai_players(room_id: str, request: AddAIRequest):
     if room.game_state.phase != GamePhase.WAITING:
         raise HTTPException(status_code=400, detail="游戏已开始，无法添加玩家")
     
-    added = room_manager.add_ai_players(room_id, request.count)
+    added = room_manager.add_ai_players(room_id, request.count, request.names)
     
     # Notify other players
     for player in added:
@@ -499,7 +499,7 @@ async def get_game_state(room_id: str, player_id: str):
         "players": [
             {
                 "id": p.id,
-                "name": p.name,
+                "name": p.display_name or p.name,  # 优先使用display_name
                 "seat": p.seat,
                 "player_type": p.player_type.value
             }

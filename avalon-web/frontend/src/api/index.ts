@@ -47,12 +47,12 @@ export const roomApi = {
       }
     ),
 
-  addAI: (roomId: string, count: number = 1) =>
+  addAI: (roomId: string, count: number = 1, names?: string[]) =>
     request<{ added: any[]; total_players: number }>(
       `/rooms/${roomId}/ai`,
       {
         method: 'POST',
-        body: JSON.stringify({ count }),
+        body: JSON.stringify({ count, names }),
       }
     ),
 

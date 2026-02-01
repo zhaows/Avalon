@@ -97,17 +97,26 @@ SEVEN_PLAYER_ROLES = [
     Role.OBERON,
 ]
 
+# 有趣的中文昵称列表用于AI玩家
+AI_DISPLAY_NAMES = [
+    "小明", "小红", "阿呆", "豆豆", "饺子", 
+    "包子", "汤圆", "麻薯", "奶茶", "芝士",
+    "泡芙", "布丁", "饼干", "蛋挞", "可乐"
+]
+
 
 class PlayerInfo(BaseModel):
     """Information about a player."""
     id: str
-    name: str
+    name: str  # 原始用户输入的名字
     player_type: PlayerType
     seat: int  # 1-7
     role: Optional[Role] = None
     is_captain: bool = False
     is_on_mission: bool = False
     is_online: bool = True
+    agent_name: Optional[str] = None  # Python标识符形式的agent名称，如player_1
+    display_name: Optional[str] = None  # 对外显示的名字，人类用户为输入名字，AI为有趣中文名
 
 
 class GameState(BaseModel):
@@ -153,6 +162,7 @@ class JoinRoomRequest(BaseModel):
 class AddAIRequest(BaseModel):
     """Request to add AI players."""
     count: int = 1
+    names: Optional[List[str]] = None  # 可选的AI玩家名字列表，不提供则使用默认中文昵称
 
 
 class SelectTeamRequest(BaseModel):
