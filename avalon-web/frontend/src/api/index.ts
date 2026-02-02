@@ -47,12 +47,13 @@ export const roomApi = {
       }
     ),
 
-  addAI: (roomId: string, count: number = 1, names?: string[]) =>
+  addAI: (roomId: string, count: number = 1, names?: string[], token?: string | null, 
+          players?: Array<{ name: string; personality: string }>) =>
     request<{ added: any[]; total_players: number }>(
       `/rooms/${roomId}/ai`,
       {
         method: 'POST',
-        body: JSON.stringify({ count, names }),
+        body: JSON.stringify({ count, names, token, players }),
       }
     ),
 
@@ -72,9 +73,9 @@ export const roomApi = {
 // Game APIs
 export const gameApi = {
   // Start the game - this triggers Swarm team.run_stream()
-  start: (roomId: string, playerId: string) =>
-    request<{ success: boolean; message: string }>(
-      `/rooms/${roomId}/start?player_id=${playerId}`,
+  start: (roomId: string, playerId: string, token?: string | null) =>
+    request<{ success: boolean; message: string; ai_consumed?: number }>(
+      `/rooms/${roomId}/start?player_id=${playerId}${token ? `&token=${token}` : ''}`,
       { method: 'POST' }
     ),
 
@@ -95,4 +96,217 @@ export const gameApi = {
   // Get current game state (for player's role info and player list)
   getState: (roomId: string, playerId: string) =>
     request<any>(`/rooms/${roomId}/state?player_id=${playerId}`),
+};
+
+// Auth APIs
+export const authApi = {
+  register: (username: string, password: string) =>
+    request<{ success: boolean; message: string; token: string; user: any }>(
+      '/auth/register',
+      {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      }
+    ),
+
+  login: (username: string, password: string) =>
+    request<{ success: boolean; message: string; token: string; user: any }>(
+      '/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      }
+    ),
+
+  // 发送短信验证码
+  sendSMS: (phone: string) =>
+    request<{ success: boolean; message: string }>('/auth/send-sms', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    }),
+
+  // 手机号验证码登录/注册
+  phoneLogin: (phone: string, code: string) =>
+    request<{ success: boolean; message: string; token: string; user: any }>(
+      '/auth/phone-login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ phone, code }),
+      }
+    ),
+
+  // 获取微信扫码登录URL
+  getWeChatQRCode: (state?: string) =>
+    request<{ oauth_url: string }>(
+      `/auth/wechat-qrcode${state ? `?state=${state}` : ''}`
+    ),
+
+  // 微信授权登录
+  wechatLogin: (code: string) =>
+    request<{ success: boolean; message: string; token: string; user: any }>(
+      '/auth/wechat-login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }
+    ),
+
+  // 微信小程序登录
+  wechatMPLogin: (code: string) =>
+    request<{ success: boolean; message: string; token: string; user: any }>(
+      '/auth/wechat-mp-login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }
+    ),
+
+  logout: (token: string) =>
+    request<{ success: boolean }>(`/auth/logout?token=${token}`, {
+      method: 'POST',
+    }),
+
+  getUserInfo: (token: string) =>
+    request<any>(`/user/info?token=${token}`),
+
+  getAICredits: (token: string) =>
+    request<{ ai_credits: number; total_ai_used: number }>(
+      `/user/ai-credits?token=${token}`
+    ),
+
+  getFavoriteAINames: (token: string) =>
+    request<{ names: string[] }>(`/user/favorite-ai-names?token=${token}`),
+
+  addFavoriteAIName: (token: string, name: string) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-names?token=${token}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      }
+    ),
+
+  removeFavoriteAIName: (token: string, name: string) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-names/${encodeURIComponent(name)}?token=${token}`,
+      { method: 'DELETE' }
+    ),
+
+  updateFavoriteAINames: (token: string, names: string[]) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-names?token=${token}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ names }),
+      }
+    ),
+
+  // 常用AI玩家信息管理（含personality）
+  getFavoriteAIPlayers: (token: string) =>
+    request<{ players: Array<{ name: string; personality: string }> }>(
+      `/user/favorite-ai-players?token=${token}`
+    ),
+
+  addFavoriteAIPlayer: (token: string, name: string, personality: string = '') =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-players?token=${token}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ name, personality }),
+      }
+    ),
+
+  updateFavoriteAIPlayer: (token: string, name: string, personality: string) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-players/${encodeURIComponent(name)}?token=${token}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ name, personality }),
+      }
+    ),
+
+  removeFavoriteAIPlayer: (token: string, name: string) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-players/${encodeURIComponent(name)}?token=${token}`,
+      { method: 'DELETE' }
+    ),
+
+  updateFavoriteAIPlayers: (token: string, players: Array<{ name: string; personality: string }>) =>
+    request<{ success: boolean; message: string }>(
+      `/user/favorite-ai-players?token=${token}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ players }),
+      }
+    ),
+};
+
+// 支付相关API
+export const paymentApi = {
+  // 获取充值套餐列表
+  getPackages: () =>
+    request<{
+      packages: Array<{
+        credits: number;
+        price: number;
+        price_yuan: number;
+        description: string;
+        unit_price: number;
+      }>;
+    }>('/payment/packages'),
+
+  // 创建订单
+  createOrder: (token: string, credits: number, paymentMethod: string = 'wechat') =>
+    request<{
+      success: boolean;
+      message: string;
+      order: {
+        order_id: string;
+        credits: number;
+        amount: number;
+        amount_yuan: number;
+        payment_method: string;
+        status: string;
+      };
+      pay_url: string | null;
+    }>(`/payment/order?token=${token}`, {
+      method: 'POST',
+      body: JSON.stringify({ credits, payment_method: paymentMethod }),
+    }),
+
+  // 查询订单状态
+  getOrderStatus: (token: string, orderId: string) =>
+    request<{
+      order: {
+        id: string;
+        status: string;
+        credits: number;
+        amount: number;
+        created_at: string;
+        paid_at: string | null;
+      };
+    }>(`/payment/order/${orderId}?token=${token}`),
+
+  // 获取用户订单列表
+  getOrders: (token: string) =>
+    request<{
+      orders: Array<{
+        id: string;
+        status: string;
+        credits: number;
+        amount: number;
+        created_at: string;
+        paid_at: string | null;
+      }>;
+    }>(`/payment/orders?token=${token}`),
+
+  // 模拟支付（开发环境）
+  simulatePayment: (token: string, orderId: string) =>
+    request<{
+      success: boolean;
+      message: string;
+      user: any;
+    }>(`/payment/simulate/${orderId}?token=${token}`, {
+      method: 'POST',
+    }),
 };

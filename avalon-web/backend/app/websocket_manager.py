@@ -6,6 +6,7 @@ from typing import Dict, List, Set
 from fastapi import WebSocket
 from datetime import datetime
 
+from .logger import ws_logger as logger
 from .models import GameMessage
 
 
@@ -24,16 +25,19 @@ class ConnectionManager:
             self.connections[room_id] = {}
         
         self.connections[room_id][player_id] = websocket
+        logger.debug(f"WS连接注册: room={room_id}, player={player_id}")
     
     def disconnect(self, room_id: str, player_id: str):
         """Remove a WebSocket connection."""
         if room_id in self.connections:
             if player_id in self.connections[room_id]:
                 del self.connections[room_id][player_id]
+                logger.debug(f"WS连接移除: room={room_id}, player={player_id}")
             
             # Clean up empty rooms
             if not self.connections[room_id]:
                 del self.connections[room_id]
+                logger.debug(f"WS房间清理: room={room_id}")
     
     async def send_to_player(self, room_id: str, player_id: str, message: dict):
         """Send a message to a specific player."""

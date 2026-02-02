@@ -5,20 +5,39 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { roomApi } from '../api';
 import { useGameStore } from '../store/gameStore';
+import { useAuthStore } from '../store/authStore';
 import { RoomListItem } from '../types';
+import UserInfoPanel from '../components/UserInfoPanel';
+import AuthModal from '../components/AuthModal';
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { setConnection, reset } = useGameStore();
+  const { isLoggedIn, user } = useAuthStore();
   
   const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   
   const [roomName, setRoomName] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    reset(); // Clear any previous session
+    loadRooms();
+    const interval = setInterval(loadRooms, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 自动填充玩家名为登录用户名
+  useEffect(() => {
+    if (isLoggedIn && user?.display_name && !playerName) {
+      setPlayerName(user.display_name);
+    }
+  }, [isLoggedIn, user]);
 
   useEffect(() => {
     reset(); // Clear any previous session
@@ -70,6 +89,11 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Top Bar - User Info */}
+      <div className="absolute top-4 right-4 z-10">
+        <UserInfoPanel compact />
+      </div>
+
       {/* Hero Section */}
       <div className="flex-1 flex flex-col items-center justify-center p-6 relative">
         {/* Decorative elements */}
@@ -83,20 +107,36 @@ export default function HomePage() {
             <span className="gradient-text">阿瓦隆</span>
           </h1>
           <p className="text-xl text-slate-400 max-w-md mx-auto">
-            经典7人阵营推理桌游，支持 AI 智能玩家
+            经典7人阵营推理桌游，支持 AI 玩家
           </p>
+          {!isLoggedIn && (
+            <p className="text-green-400 text-sm mt-2">
+              🎁 新用户注册赠送 20 人次 AI 玩家额度
+            </p>
+          )}
         </div>
 
         {/* Main Actions */}
         <div className="w-full max-w-md space-y-4 fade-in" style={{ animationDelay: '0.1s' }}>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
-                       transform hover:scale-[1.02] active:scale-[0.98] transition-all"
-          >
-            <span className="text-xl">🎮</span>
-            创建新房间
-          </button>
+          {isLoggedIn ? (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
+                         transform hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              <span className="text-xl">🎮</span>
+              创建新房间
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
+                         transform hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              <span className="text-xl">🔐</span>
+              登录开始游戏
+            </button>
+          )}
         </div>
 
         {/* Room List */}
@@ -157,7 +197,13 @@ export default function HomePage() {
                       
                       {room.phase === 'waiting' && room.player_count < room.max_players && (
                         <button
-                          onClick={() => setShowJoin(room.id)}
+                          onClick={() => {
+                            if (isLoggedIn) {
+                              setShowJoin(room.id);
+                            } else {
+                              setShowAuthModal(true);
+                            }
+                          }}
                           className="btn-success px-5 py-2 rounded-xl opacity-80 group-hover:opacity-100 transition-opacity"
                         >
                           加入
@@ -291,6 +337,9 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* Auth Modal */}
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }

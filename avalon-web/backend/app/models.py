@@ -117,6 +117,7 @@ class PlayerInfo(BaseModel):
     is_online: bool = True
     agent_name: Optional[str] = None  # Python标识符形式的agent名称，如player_1
     display_name: Optional[str] = None  # 对外显示的名字，人类用户为输入名字，AI为有趣中文名
+    personality: Optional[str] = None  # 玩家人设，与角色无关
 
 
 class GameState(BaseModel):
@@ -144,6 +145,10 @@ class RoomInfo(BaseModel):
     max_players: int = 7
     game_state: GameState = GameState()
     created_at: datetime = datetime.now()
+    # 游戏会话信息（用于结束时扣除AI额度）
+    game_host_token: Optional[str] = None  # 开始游戏的房主token
+    game_ai_count: int = 0  # 本局游戏的AI数量
+    ai_credits_deducted: bool = False  # 是否已扣除额度（防止重复扣除）
 
 
 # Request/Response models
@@ -163,6 +168,8 @@ class AddAIRequest(BaseModel):
     """Request to add AI players."""
     count: int = 1
     names: Optional[List[str]] = None  # 可选的AI玩家名字列表，不提供则使用默认中文昵称
+    players: Optional[List[dict]] = None  # 完整的AI玩家信息列表 [{"name": "...", "personality": "..."}]
+    token: Optional[str] = None  # 用户登录token，添加AI需要登录
 
 
 class SelectTeamRequest(BaseModel):

@@ -26,6 +26,7 @@ export interface Player {
   is_captain: boolean;
   is_on_mission: boolean;
   is_online: boolean;
+  personality?: string;  // AI玩家人设
 }
 
 export interface Room {

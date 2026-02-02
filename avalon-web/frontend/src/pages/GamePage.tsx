@@ -14,6 +14,7 @@ interface RoleInfo {
   team: Team;
   info: string;
   role_notes: string;
+  personality?: string;  // 玩家人设
 }
 
 interface GameStateResponse {
@@ -36,6 +37,7 @@ export default function GamePage() {
   const [waitingForInput, setWaitingForInput] = useState(false);
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [expandedPersonality, setExpandedPersonality] = useState<string | null>(null);  // 展开的玩家ID
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Check if current player is host
@@ -229,27 +231,48 @@ export default function GamePage() {
   const phaseInfo = hostGameState?.phase ? PHASE_LABELS[hostGameState.phase] : null;
 
   return (
-    <div className="h-screen p-2 flex flex-col overflow-hidden">
+    <div className="h-screen p-3 flex flex-col overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* 顶部状态栏 */}
-      <div className="glass rounded-lg p-2 mb-2 flex-shrink-0">
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-3 mb-3 flex-shrink-0 border border-slate-700/50 shadow-lg">
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* 游戏标题 */}
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏰</span>
+            <span className="font-bold text-white text-lg">阿瓦隆</span>
+          </div>
+          
+          <div className="w-px h-6 bg-slate-600/50"></div>
+
           {/* 游戏状态标签 */}
           {phaseInfo && (
             <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded bg-slate-700/50 text-sm">{phaseInfo.emoji} {phaseInfo.label}</span>
-              <span className="px-2 py-1 rounded bg-slate-700/50 text-sm">第<span className="text-yellow-400 font-bold mx-0.5">{hostGameState?.mission_round || 1}</span>轮</span>
-              <span className="px-2 py-1 rounded bg-slate-700/50 text-sm">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30">
+                <span className="text-base">{phaseInfo.emoji}</span>
+                <span className="text-sm font-medium text-purple-300">{phaseInfo.label}阶段</span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-slate-700/50 text-sm text-slate-300">
+                第 <span className="text-yellow-400 font-bold">{hostGameState?.mission_round || 1}</span> 轮任务
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-700/50">
+                <span className="text-sm text-slate-400">战绩</span>
                 <span className="text-blue-400 font-bold">{hostGameState?.mission_success_count || 0}</span>
-                <span className="text-slate-500 mx-0.5">:</span>
+                <span className="text-slate-500">vs</span>
                 <span className="text-red-400 font-bold">{hostGameState?.mission_fail_count || 0}</span>
-              </span>
-              {hostGameState?.captain && <span className="px-2 py-1 rounded bg-yellow-500/10 text-yellow-400 text-sm">👑 队长: {hostGameState.captain}</span>}
+              </div>
+              {hostGameState?.captain && (
+                <div className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-sm">
+                  <span className="text-yellow-400">👑 队长: </span>
+                  <span className="text-yellow-300 font-medium">{hostGameState.captain}</span>
+                </div>
+              )}
             </div>
           )}
 
           {/* 轮到你提示 */}
           {hostGameState?.next_player === playerName && (
-            <span className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-sm animate-pulse font-bold">⭐ 轮到你行动</span>
+            <div className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/30 to-cyan-500/30 border border-blue-400/50 animate-pulse">
+              <span className="text-blue-300 font-bold text-sm">⭐ 轮到你行动！</span>
+            </div>
           )}
 
           {/* 右侧操作按钮 */}
@@ -257,16 +280,17 @@ export default function GamePage() {
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setAutoScroll(!autoScroll)} 
-              className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${autoScroll ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}
-              title={autoScroll ? '自动滚动已开启' : '自动滚动已暂停'}
+              className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all
+                ${autoScroll 
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' 
+                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'}`}
             >
-              {autoScroll ? '⏬' : '⏸️'} {autoScroll ? '自动滚动' : '暂停滚动'}
+              {autoScroll ? '⏬' : '⏸️'} {autoScroll ? '自动滚动' : '已暂停'}
             </button>
             {isHost && gameState?.is_running && (
               <button 
                 onClick={handleEndGameClick} 
-                className="px-2 py-1 rounded text-xs bg-red-500/20 text-red-400 flex items-center gap-1"
-                title="结束当前游戏"
+                className="px-3 py-1.5 rounded-lg text-xs bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5 hover:bg-red-500/30 transition-all"
               >
                 🛑 结束游戏
               </button>
@@ -276,41 +300,71 @@ export default function GamePage() {
       </div>
 
       {/* 主内容区：左右布局 */}
-      <div className="flex-1 flex gap-2 min-h-0">
+      <div className="flex-1 flex gap-3 min-h-0">
         {/* 左侧面板：角色+玩家 */}
-        <div className="w-64 flex-shrink-0 flex flex-col gap-2 overflow-y-auto">
+        <div className="w-72 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
           {/* 角色卡片 */}
-          <div className={`glass rounded-lg p-3 ${isGood ? 'border border-blue-500/30' : 'border border-red-500/30'}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">
+          <div className={`rounded-xl p-4 shadow-lg transition-all ${
+            isGood 
+              ? 'bg-gradient-to-br from-blue-900/40 to-cyan-900/30 border border-blue-500/40' 
+              : 'bg-gradient-to-br from-red-900/40 to-orange-900/30 border border-red-500/40'
+          }`}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
+                isGood ? 'bg-blue-500/20' : 'bg-red-500/20'
+              }`}>
                 {roleInfo?.role === '梅林' ? '🧙' : roleInfo?.role === '派西维尔' ? '🛡️' : roleInfo?.role === '忠臣' ? '⚔️' : roleInfo?.role === '刺客' ? '🗡️' : roleInfo?.role === '莫甘娜' ? '🦹' : roleInfo?.role === '奥伯伦' ? '👻' : roleInfo?.role === '莫德雷德' ? '😈' : '🎭'}
-              </span>
+              </div>
               <div>
-                <div className="font-bold text-white">{roleInfo?.role || '等待分配'}</div>
-                <div className={`text-xs ${isGood ? 'text-blue-400' : 'text-red-400'}`}>
-                  {roleInfo ? (isGood ? '好人阵营' : '坏人阵营') : '...'}
+                <div className="font-bold text-white text-lg">{roleInfo?.role || '等待分配'}</div>
+                <div className={`text-sm font-medium ${isGood ? 'text-blue-400' : 'text-red-400'}`}>
+                  {roleInfo ? (isGood ? '✨ 好人阵营' : '💀 坏人阵营') : '...'}
                 </div>
               </div>
             </div>
-            {/* 角色知道的信息 */}
-            {roleInfo?.info && roleInfo.info !== '无' && (
-              <div className="mt-2 p-2 rounded bg-yellow-500/10 border border-yellow-500/30">
-                <div className="text-xs text-yellow-400 mb-1">💡 你知道的信息:</div>
-                <div className="text-sm text-yellow-200">{roleInfo.info}</div>
+            
+            {/* 玩家人设 */}
+            {roleInfo?.personality && (
+              <div className="mb-3 group relative">
+                <div className="p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/30 cursor-help">
+                  <div className="text-xs text-purple-400 mb-1 font-medium">🎭 你的人设</div>
+                  <div className="text-sm text-purple-200 truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">
+                    {roleInfo.personality}
+                  </div>
+                </div>
+                {/* 悬浮提示框 */}
+                <div className="absolute left-0 right-0 top-full mt-1 p-3 rounded-lg bg-slate-800 border border-purple-500/50 shadow-xl z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                  <div className="text-sm text-purple-200">{roleInfo.personality}</div>
+                </div>
               </div>
             )}
+
+            {/* 角色知道的信息 */}
+            {roleInfo?.info && roleInfo.info !== '无' && (
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="text-xs text-yellow-400 mb-1.5 font-medium">💡 你知道的秘密</div>
+                <div className="text-sm text-yellow-200 leading-relaxed">{roleInfo.info}</div>
+              </div>
+            )}
+            
             {/* 角色说明 */}
             {roleInfo?.role_notes && (
-              <div className="mt-2 text-xs text-slate-400">
-                📖 {roleInfo.role_notes}
+              <div className="mt-3 pt-3 border-t border-slate-600/30">
+                <div className="text-xs text-slate-400 leading-relaxed">
+                  📖 {roleInfo.role_notes}
+                </div>
               </div>
             )}
           </div>
 
           {/* 玩家列表 */}
-          <div className="glass rounded-lg p-3 flex-1 min-h-0 overflow-y-auto">
-            <div className="text-xs text-slate-400 mb-2">👥 玩家 ({gameState?.players.length || 0}人)</div>
-            <div className="space-y-1.5">
+          <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-4 flex-1 min-h-0 overflow-y-auto border border-slate-700/50 shadow-lg">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-base">👥</span>
+              <span className="text-sm font-medium text-white">玩家列表</span>
+              <span className="text-xs text-slate-500">({gameState?.players.length || 0}人)</span>
+            </div>
+            <div className="space-y-2">
               {gameState?.players.map((player) => {
                 const isMe = player.name === playerName;
                 const isCaptain = player.name === hostGameState?.captain;
@@ -319,19 +373,56 @@ export default function GamePage() {
                 return (
                   <div 
                     key={player.id} 
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm
-                      ${isMe ? 'bg-blue-500/20 border border-blue-500/40' : isTeam ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-800/50'}
-                      ${isNext ? 'ring-1 ring-yellow-400/50' : ''}`}
+                    className={`relative px-3 py-2 rounded-lg text-sm transition-all
+                      ${isMe 
+                        ? 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border border-blue-500/40 shadow-sm' 
+                        : isTeam 
+                          ? 'bg-emerald-500/10 border border-emerald-500/30' 
+                          : 'bg-slate-700/30 hover:bg-slate-700/50'}
+                      ${isNext ? 'ring-2 ring-yellow-400/50 ring-offset-1 ring-offset-slate-900' : ''}`}
                   >
-                    <span className="text-sm">{player.player_type === 'ai' ? '🤖' : '👤'}</span>
-                    <span className={`flex-1 ${isMe ? 'text-blue-400 font-medium' : 'text-white'}`}>
-                      {player.name}
-                      {isMe && <span className="text-xs text-blue-300 ml-1">(你)</span>}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {isCaptain && <span className="text-xs" title="队长">👑</span>}
-                      {isTeam && !isCaptain && <span className="text-xs" title="队员">🎯</span>}
-                      {isNext && <span className="text-xs" title="轮到此人">⏳</span>}
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{player.player_type === 'ai' ? '🤖' : '👤'}</span>
+                      <span className={`flex-1 ${isMe ? 'text-blue-300 font-medium' : 'text-slate-200'}`}>
+                        {player.name}
+                        {isMe && <span className="text-xs text-blue-400 ml-1.5 bg-blue-500/20 px-1.5 py-0.5 rounded">你</span>}
+                        {/* AI玩家展示人设图标 */}
+                        {player.player_type === 'ai' && player.personality && (
+                          <span 
+                            className="relative inline-block ml-1.5"
+                            onMouseLeave={() => setExpandedPersonality(null)}
+                          >
+                            <span 
+                              className="text-purple-400/80 cursor-pointer hover:text-purple-300 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedPersonality(expandedPersonality === player.id ? null : player.id);
+                              }}
+                            >
+                              🎭
+                            </span>
+                            {/* 悬浮展示完整人设 - 使用fixed定位避免被裁剪 */}
+                            {expandedPersonality === player.id && (
+                              <span 
+                                className="fixed z-[9999] p-2 bg-slate-800 border border-purple-500/30 rounded-lg shadow-lg whitespace-nowrap"
+                                style={{ 
+                                  left: '50%', 
+                                  top: '50%', 
+                                  transform: 'translate(-50%, -50%)' 
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span className="text-xs text-purple-300">🎭 {player.personality}</span>
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isCaptain && <span className="text-sm" title="队长">👑</span>}
+                        {isTeam && !isCaptain && <span className="text-sm" title="队员">🎯</span>}
+                        {isNext && <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">行动中</span>}
+                      </div>
                     </div>
                   </div>
                 );
@@ -342,23 +433,34 @@ export default function GamePage() {
 
         {/* 右侧消息区域 */}
         <div className="flex-1 flex flex-col min-h-0">
-      {error && <div className="mb-2 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">{error}</div>}
+          {error && (
+            <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
 
           {/* 消息列表 */}
-          <div className="flex-1 glass rounded-lg p-2 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
+          <div className="flex-1 bg-slate-800/60 backdrop-blur-sm rounded-xl p-4 flex flex-col min-h-0 border border-slate-700/50 shadow-lg">
+            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-slate-700/50">
+              <span className="text-base">💬</span>
+              <span className="text-sm font-medium text-white">游戏消息</span>
+              <span className="text-xs text-slate-500">({messages.length}条)</span>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2 min-h-0">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-slate-400">
-              <div className="text-3xl mb-2 animate-float">🎮</div>
-              <p className="text-sm">等待游戏消息...</p>
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+              <div className="text-5xl mb-4 animate-bounce">🎮</div>
+              <p className="text-base">等待游戏消息...</p>
+              <p className="text-xs text-slate-500 mt-1">游戏开始后消息将显示在这里</p>
             </div>
           ) : (
             messages.map((msg, index) => {
               if (msg.type === 'game_start') {
                 return (
-                  <div key={index} className="text-center fade-in">
-                    <span className="px-3 py-1.5 bg-green-600/30 rounded-full text-green-300 text-xs">
-                      🎮 {msg.content.message || '游戏开始'}
+                  <div key={index} className="text-center fade-in py-2">
+                    <span className="px-4 py-2 bg-gradient-to-r from-green-600/30 to-emerald-600/30 rounded-full text-green-300 text-sm border border-green-500/30">
+                      🎮 {msg.content.message || '游戏开始！'}
                     </span>
                   </div>
                 );
@@ -370,9 +472,9 @@ export default function GamePage() {
                   return null;
                 }
                 return (
-                  <div key={index} className="text-center fade-in">
-                    <span className="px-3 py-1.5 bg-yellow-600/30 rounded-full text-yellow-300 text-xs animate-pulse">
-                      ⏳ 等待 {targetPlayer} 输入...
+                  <div key={index} className="text-center fade-in py-1">
+                    <span className="px-4 py-1.5 bg-yellow-600/20 rounded-full text-yellow-300 text-xs animate-pulse border border-yellow-500/30">
+                      ⏳ 等待 <span className="font-medium">{targetPlayer}</span> 输入...
                     </span>
                   </div>
                 );
@@ -383,16 +485,21 @@ export default function GamePage() {
                   return null;
                 }
                 return (
-                  <div key={index} className="bg-blue-900/30 rounded-lg p-2 border border-blue-500 fade-in">
-                    <div className="text-blue-300 text-xs">🔮 你的角色信息</div>
-                    <div className="text-white mt-1 text-sm">
-                      角色: <span className="font-bold text-yellow-400">{msg.content.role}</span>
-                      <span className={`ml-2 ${msg.content.team === 'good' ? 'text-blue-400' : 'text-red-400'}`}>
-                        ({msg.content.team === 'good' ? '好人' : '坏人'})
+                  <div key={index} className="bg-gradient-to-r from-blue-900/40 to-indigo-900/30 rounded-xl p-4 border border-blue-500/40 fade-in shadow-lg">
+                    <div className="flex items-center gap-2 text-blue-300 text-sm mb-2">
+                      <span className="text-lg">🔮</span>
+                      <span className="font-medium">你的角色信息</span>
+                    </div>
+                    <div className="text-white text-base">
+                      角色: <span className="font-bold text-yellow-400 text-lg">{msg.content.role}</span>
+                      <span className={`ml-3 px-2 py-0.5 rounded-full text-sm ${msg.content.team === 'good' ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {msg.content.team === 'good' ? '好人阵营' : '坏人阵营'}
                       </span>
                     </div>
                     {msg.content.info && msg.content.info !== '无' && (
-                      <div className="text-yellow-300 text-xs mt-1">💡 {msg.content.info}</div>
+                      <div className="mt-3 p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                        <span className="text-yellow-300 text-sm">💡 {msg.content.info}</span>
+                      </div>
                     )}
                   </div>
                 );
@@ -405,31 +512,40 @@ export default function GamePage() {
                   content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
                 }
                 
+                const isHost = source === 'Host';
+                const isMyMessage = source === playerName;
+                
                 return (
-                  <div key={index} className="bg-gray-700/50 rounded-lg p-2 fade-in">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="text-sm">{getSourceEmoji(source)}</span>
-                      <span className={`font-semibold text-sm ${getSourceColor(source)}`}>{source}</span>
-                      {source === playerName && <span className="text-xs text-blue-400">(你)</span>}
+                  <div key={index} className={`rounded-xl p-3 fade-in transition-all ${
+                    isHost 
+                      ? 'bg-gradient-to-r from-amber-900/30 to-orange-900/20 border border-amber-500/30' 
+                      : isMyMessage
+                        ? 'bg-gradient-to-r from-blue-900/30 to-cyan-900/20 border border-blue-500/30'
+                        : 'bg-slate-700/40 hover:bg-slate-700/50'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">{getSourceEmoji(source)}</span>
+                      <span className={`font-semibold ${getSourceColor(source)}`}>{source}</span>
+                      {isMyMessage && <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">你</span>}
                     </div>
-                    <div className="text-gray-200 whitespace-pre-wrap text-sm">{content}</div>
+                    <div className="text-slate-200 whitespace-pre-wrap leading-relaxed pl-7">{content}</div>
                   </div>
                 );
               }
               
               if (msg.type === 'game_over') {
                 return (
-                  <div key={index} className="bg-gradient-to-r from-yellow-900/50 to-orange-900/50 rounded-lg p-3 border border-yellow-500 fade-in">
+                  <div key={index} className="bg-gradient-to-r from-yellow-900/50 via-orange-900/40 to-red-900/30 rounded-xl p-5 border-2 border-yellow-500/50 fade-in shadow-xl">
                     <div className="text-center">
-                      <div className="text-xl font-bold text-yellow-400 mb-2">🏆 游戏结束 🏆</div>
-                      <div className="text-white text-sm">{msg.content.message}</div>
+                      <div className="text-3xl font-bold text-yellow-400 mb-3">🏆 游戏结束 🏆</div>
+                      <div className="text-white text-lg mb-4">{msg.content.message}</div>
                       {msg.content.roles && (
-                        <div className="mt-2">
-                          <div className="text-xs text-gray-400 mb-1">角色揭晓:</div>
-                          <div className="flex flex-wrap gap-1 justify-center">
+                        <div className="mt-4 p-4 bg-slate-900/50 rounded-lg">
+                          <div className="text-sm text-gray-400 mb-3 font-medium">🎭 角色揭晓</div>
+                          <div className="flex flex-wrap gap-2 justify-center">
                             {Object.entries(msg.content.roles).map(([name, role]) => (
-                              <span key={name} className="px-2 py-0.5 bg-gray-800 rounded text-xs text-white">
-                                {name}: {role as string}
+                              <span key={name} className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-white border border-slate-700">
+                                <span className="text-slate-400">{name}:</span> <span className="font-medium">{role as string}</span>
                               </span>
                             ))}
                           </div>
@@ -442,8 +558,9 @@ export default function GamePage() {
               
               if (msg.type === 'error') {
                 return (
-                  <div key={index} className="bg-red-900/30 rounded-lg p-2 border border-red-500 fade-in">
-                    <span className="text-red-400 text-sm">⚠️ 错误: {msg.content.message || msg.content}</span>
+                  <div key={index} className="bg-red-900/30 rounded-xl p-3 border border-red-500/40 fade-in flex items-center gap-2">
+                    <span className="text-lg">⚠️</span>
+                    <span className="text-red-400">错误: {msg.content.message || msg.content}</span>
                   </div>
                 );
               }
@@ -454,24 +571,29 @@ export default function GamePage() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* 输入区域 */}
         {waitingForInput && (
-          <div className="mt-2 p-2 bg-blue-500/10 rounded-lg border border-blue-500/30 flex-shrink-0">
-            <div className="flex gap-2">
+          <div className="mt-3 p-4 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-xl border border-blue-500/30 flex-shrink-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-base">✏️</span>
+              <span className="text-sm font-medium text-blue-300">轮到你发言或决策</span>
+            </div>
+            <div className="flex gap-3">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendInput()}
-                placeholder="输入发言或决策..."
-                className="input flex-1 text-sm py-2"
+                placeholder="输入你的发言或决策..."
+                className="flex-1 px-4 py-3 bg-slate-900/80 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
                 autoFocus
               />
               <button
                 onClick={handleSendInput}
                 disabled={!inputText.trim()}
-                className="btn btn-primary disabled:opacity-50 px-4"
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all shadow-lg"
               >
-                发送
+                发送 →
               </button>
             </div>
           </div>
@@ -480,11 +602,25 @@ export default function GamePage() {
 
           {/* 游戏结束状态栏 */}
           {!gameState?.is_running && (
-            <div className="mt-2 glass rounded-lg p-2 flex-shrink-0">
-              <div className="flex items-center justify-center gap-3">
-                <span className="text-amber-400 text-sm">🏁 游戏已结束</span>
-                <button onClick={handleRestartGame} className="btn btn-success text-sm px-3 py-1">🔄 重新开始</button>
-                <button onClick={handleLeaveRoom} className="btn btn-secondary text-sm px-3 py-1">🏠 返回首页</button>
+            <div className="mt-3 bg-gradient-to-r from-amber-900/30 to-orange-900/20 rounded-xl p-4 flex-shrink-0 border border-amber-500/30">
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🏁</span>
+                  <span className="text-amber-300 font-medium">游戏已结束</span>
+                </div>
+                <div className="w-px h-6 bg-amber-500/30"></div>
+                <button 
+                  onClick={handleRestartGame} 
+                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-medium rounded-lg transition-all flex items-center gap-2 shadow-lg"
+                >
+                  🔄 重新开始
+                </button>
+                <button 
+                  onClick={handleLeaveRoom} 
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg transition-all flex items-center gap-2"
+                >
+                  🏠 返回首页
+                </button>
               </div>
             </div>
           )}

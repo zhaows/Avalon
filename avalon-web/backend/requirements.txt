@@ -7,3 +7,14 @@ autogen-agentchat>=0.4.0
 autogen-ext>=0.4.0
 autogen-core>=0.4.0
 python-dotenv==1.0.0
+requests>=2.31.0
+
+# Optional: SMS Service (阿里云)
+# alibabacloud_dysmsapi20170525>=2.0.0
+# alibabacloud-tea-openapi>=0.3.0
+
+# Optional: SMS Service (腾讯云)
+# tencentcloud-sdk-python>=3.0.0
+
+# Optional: WeChat 小程序解密
+# pycryptodome>=3.19.0
