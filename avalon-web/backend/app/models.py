@@ -111,6 +111,7 @@ class PlayerInfo(BaseModel):
     name: str  # 原始用户输入的名字
     player_type: PlayerType
     seat: int  # 1-7
+    user_id: Optional[str] = None  # 关联的账号ID，AI玩家为None
     role: Optional[Role] = None
     is_captain: bool = False
     is_on_mission: bool = False
@@ -156,12 +157,15 @@ class CreateRoomRequest(BaseModel):
     """Request to create a room."""
     room_name: str
     player_name: str
+    token: Optional[str] = None  # 用户登录token，创建房间需要登录
 
 
 class JoinRoomRequest(BaseModel):
     """Request to join a room."""
     player_name: str
     player_type: PlayerType = PlayerType.HUMAN
+    token: Optional[str] = None  # 用户登录token，加入房间需要登录
+    user_id: Optional[str] = None  # 用户ID，用于检查是否已在房间
 
 
 class AddAIRequest(BaseModel):

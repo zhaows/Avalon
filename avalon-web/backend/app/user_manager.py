@@ -23,7 +23,34 @@ class UserManager:
     def __init__(self):
         # 内存中的会话管理（可以后续改为Redis等）
         self.sessions: Dict[str, str] = {}  # session_token -> user_id
+        self.user_sessions: Dict[str, str] = {}  # user_id -> session_token (反向映射，用于单端登录)
         logger.info(f"用户管理器初始化完成，当前用户数: {db.get_user_count()}")
+    
+    def _invalidate_user_sessions(self, user_id: str) -> Optional[str]:
+        """
+        使该用户的所有旧session失效（单端登录）
+        返回被踢掉的旧 session_token（如果有）
+        """
+        old_token = self.user_sessions.get(user_id)
+        if old_token:
+            # 从 sessions 中移除旧 token
+            self.sessions.pop(old_token, None)
+            logger.info(f"用户 {user_id} 的旧会话已失效（单端登录）")
+        return old_token
+    
+    def _create_session(self, user_id: str) -> str:
+        """
+        为用户创建新 session，同时清除旧 session（单端登录）
+        """
+        # 先清除旧session
+        self._invalidate_user_sessions(user_id)
+        
+        # 创建新session
+        session_token = self._generate_session_token()
+        self.sessions[session_token] = user_id
+        self.user_sessions[user_id] = session_token
+        
+        return session_token
     
     def _hash_password(self, password: str) -> str:
         """密码哈希"""
@@ -62,9 +89,8 @@ class UserManager:
         ):
             return False, "注册失败，请稍后重试", None
         
-        # 自动登录（使用user_id作为session值）
-        session_token = self._generate_session_token()
-        self.sessions[session_token] = user_id
+        # 自动登录（单端登录）
+        session_token = self._create_session(user_id)
         
         logger.info(f"用户注册成功: {username}, 赠送 {DEFAULT_AI_CREDITS} AI额度")
         return True, f"注册成功！赠送 {DEFAULT_AI_CREDITS} 人次AI玩家额度", session_token
@@ -84,9 +110,8 @@ class UserManager:
         # 更新最后登录时间
         db.update_last_login_by_id(user['id'])
         
-        # 生成会话token（使用user_id作为session值）
-        session_token = self._generate_session_token()
-        self.sessions[session_token] = user['id']
+        # 生成会话token（单端登录，踢掉旧设备）
+        session_token = self._create_session(user['id'])
         
         logger.info(f"用户登录: {username}")
         return True, "登录成功", session_token
@@ -95,6 +120,9 @@ class UserManager:
         """用户登出"""
         if session_token in self.sessions:
             user_id = self.sessions.pop(session_token)
+            # 清除反向映射
+            if self.user_sessions.get(user_id) == session_token:
+                del self.user_sessions[user_id]
             logger.info(f"用户登出: {user_id}")
             return True
         return False
@@ -126,10 +154,9 @@ class UserManager:
         user = db.get_user_by_phone(phone)
         
         if user:
-            # 已注册用户，直接登录
+            # 已注册用户，直接登录（单端登录）
             db.update_last_login_by_id(user['id'])
-            session_token = self._generate_session_token()
-            self.sessions[session_token] = user['id']
+            session_token = self._create_session(user['id'])
             logger.info(f"手机号登录成功: {phone[-4:].rjust(11, '*')}")
             return True, "登录成功", session_token
         else:
@@ -148,8 +175,8 @@ class UserManager:
             ):
                 return False, "注册失败，请稍后重试", None
             
-            session_token = self._generate_session_token()
-            self.sessions[session_token] = user_id
+            # 单端登录
+            session_token = self._create_session(user_id)
             
             logger.info(f"手机号注册成功: {phone[-4:].rjust(11, '*')}, 赠送 {DEFAULT_AI_CREDITS} AI额度")
             return True, f"注册成功！赠送 {DEFAULT_AI_CREDITS} 人次AI玩家额度", session_token
@@ -199,8 +226,8 @@ class UserManager:
                 )
             db.update_last_login_by_id(user['id'])
             
-            session_token = self._generate_session_token()
-            self.sessions[session_token] = user['id']
+            # 单端登录
+            session_token = self._create_session(user['id'])
             logger.info(f"微信登录成功: openid={wechat_user.openid[:8]}...")
             return True, "登录成功", session_token
         else:
@@ -220,8 +247,8 @@ class UserManager:
             ):
                 return False, "注册失败，请稍后重试", None
             
-            session_token = self._generate_session_token()
-            self.sessions[session_token] = user_id
+            # 单端登录
+            session_token = self._create_session(user_id)
             
             logger.info(f"微信注册成功: openid={wechat_user.openid[:8]}..., 赠送 {DEFAULT_AI_CREDITS} AI额度")
             return True, f"注册成功！赠送 {DEFAULT_AI_CREDITS} 人次AI玩家额度", session_token

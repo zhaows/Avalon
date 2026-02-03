@@ -4,6 +4,13 @@
 
 const API_BASE = '/api';
 
+// 全局回调：当检测到登录失效时触发
+let onAuthExpired: ((reason?: string) => void) | null = null;
+
+export function setOnAuthExpired(callback: (reason?: string) => void) {
+  onAuthExpired = callback;
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -18,7 +25,26 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const errorMessage = error.detail || `HTTP ${response.status}`;
+    
+    // 检测登录失效的错误信息
+    if (response.status === 401 || 
+        errorMessage.includes('登录已过期') || 
+        errorMessage.includes('无效的token') ||
+        errorMessage.includes('用户未登录') ||
+        errorMessage.includes('token已过期') ||
+        errorMessage.includes('请先登录')) {
+      // 判断是否是被踢出（其他设备登录）
+      const reason = errorMessage.includes('其他设备') || errorMessage.includes('被踢出')
+        ? '您的账号在其他设备登录，当前设备已下线'
+        : undefined;
+      // 触发全局登录失效回调
+      if (onAuthExpired) {
+        onAuthExpired(reason);
+      }
+    }
+    
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -29,21 +55,21 @@ export const roomApi = {
   list: () => 
     request<{ rooms: any[] }>('/rooms'),
 
-  create: (roomName: string, playerName: string) =>
+  create: (roomName: string, playerName: string, token?: string | null) =>
     request<{ room_id: string; player_id: string; player_name: string }>('/rooms', {
       method: 'POST',
-      body: JSON.stringify({ room_name: roomName, player_name: playerName }),
+      body: JSON.stringify({ room_name: roomName, player_name: playerName, token }),
     }),
 
   get: (roomId: string) =>
     request<any>(`/rooms/${roomId}`),
 
-  join: (roomId: string, playerName: string) =>
+  join: (roomId: string, playerName: string, token?: string | null) =>
     request<{ player_id: string; player_name: string; seat: number }>(
       `/rooms/${roomId}/join`,
       {
         method: 'POST',
-        body: JSON.stringify({ player_name: playerName }),
+        body: JSON.stringify({ player_name: playerName, token }),
       }
     ),
 
@@ -167,7 +193,7 @@ export const authApi = {
     }),
 
   getUserInfo: (token: string) =>
-    request<any>(`/user/info?token=${token}`),
+    request<{ user: any }>(`/user/info?token=${token}`),
 
   getAICredits: (token: string) =>
     request<{ ai_credits: number; total_ai_used: number }>(

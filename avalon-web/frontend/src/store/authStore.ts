@@ -30,6 +30,7 @@ interface AuthStore {
   isLoggedIn: boolean;
   token: string | null;
   user: UserInfo | null;
+  _hasHydrated: boolean;  // 是否已从 localStorage 恢复状态
   
   // Actions
   login: (token: string, user: UserInfo) => void;
@@ -44,6 +45,7 @@ interface AuthStore {
   addFavoriteAIPlayer: (player: FavoriteAIPlayer) => void;
   updateFavoriteAIPlayer: (name: string, personality: string) => void;
   removeFavoriteAIPlayer: (name: string) => void;
+  setHasHydrated: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -52,6 +54,11 @@ export const useAuthStore = create<AuthStore>()(
       isLoggedIn: false,
       token: null,
       user: null,
+      _hasHydrated: false,
+
+      setHasHydrated: (state: boolean) => {
+        set({ _hasHydrated: state });
+      },
 
       login: (token, user) => {
         set({ isLoggedIn: true, token, user });
@@ -162,6 +169,10 @@ export const useAuthStore = create<AuthStore>()(
         token: state.token,
         user: state.user,
       }),
+      onRehydrateStorage: () => (state) => {
+        // 当从 localStorage 恢复完成后调用
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

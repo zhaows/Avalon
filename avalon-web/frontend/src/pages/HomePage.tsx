@@ -8,18 +8,18 @@ import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { RoomListItem } from '../types';
 import UserInfoPanel from '../components/UserInfoPanel';
-import AuthModal from '../components/AuthModal';
+import { useAuth } from '../utils/auth';
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { setConnection, reset } = useGameStore();
-  const { isLoggedIn, user } = useAuthStore();
+  const { isLoggedIn, user, token } = useAuthStore();
+  const { requireAuth } = useAuth();
   
   const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState<string | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
   
   const [roomName, setRoomName] = useState('');
   const [playerName, setPlayerName] = useState('');
@@ -39,13 +39,6 @@ export default function HomePage() {
     }
   }, [isLoggedIn, user]);
 
-  useEffect(() => {
-    reset(); // Clear any previous session
-    loadRooms();
-    const interval = setInterval(loadRooms, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
   const loadRooms = async () => {
     try {
       const data = await roomApi.list();
@@ -63,8 +56,11 @@ export default function HomePage() {
       return;
     }
 
+    // 检查登录状态
+    if (!requireAuth()) return;
+
     try {
-      const result = await roomApi.create(roomName.trim(), playerName.trim());
+      const result = await roomApi.create(roomName.trim(), playerName.trim(), token);
       setConnection(result.room_id, result.player_id, result.player_name);
       navigate(`/room/${result.room_id}`);
     } catch (err: any) {
@@ -78,8 +74,11 @@ export default function HomePage() {
       return;
     }
 
+    // 检查登录状态
+    if (!requireAuth()) return;
+
     try {
-      const result = await roomApi.join(roomId, playerName.trim());
+      const result = await roomApi.join(roomId, playerName.trim(), token);
       setConnection(roomId, result.player_id, result.player_name);
       navigate(`/room/${roomId}`);
     } catch (err: any) {
@@ -129,7 +128,7 @@ export default function HomePage() {
             </button>
           ) : (
             <button
-              onClick={() => setShowAuthModal(true)}
+              onClick={() => requireAuth({ silent: true })}
               className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
                          transform hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
@@ -201,7 +200,7 @@ export default function HomePage() {
                             if (isLoggedIn) {
                               setShowJoin(room.id);
                             } else {
-                              setShowAuthModal(true);
+                              requireAuth({ silent: true });
                             }
                           }}
                           className="btn-success px-5 py-2 rounded-xl opacity-80 group-hover:opacity-100 transition-opacity"
@@ -337,9 +336,6 @@ export default function HomePage() {
           </div>
         </div>
       )}
-
-      {/* Auth Modal */}
-      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }

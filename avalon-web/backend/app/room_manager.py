@@ -30,7 +30,7 @@ class RoomManager:
     def __init__(self):
         self.rooms: Dict[str, RoomInfo] = {}
     
-    def create_room(self, room_name: str, host_name: str) -> tuple[RoomInfo, PlayerInfo]:
+    def create_room(self, room_name: str, host_name: str, user_id: str = None) -> tuple[RoomInfo, PlayerInfo]:
         """Create a new room and add the host as first player."""
         room_id = str(uuid.uuid4())[:8]
         player_id = str(uuid.uuid4())[:8]
@@ -39,7 +39,8 @@ class RoomManager:
             id=player_id,
             name=host_name,
             player_type=PlayerType.HUMAN,
-            seat=1
+            seat=1,
+            user_id=user_id
         )
         
         room = RoomInfo(
@@ -51,7 +52,7 @@ class RoomManager:
         )
         
         self.rooms[room_id] = room
-        logger.info(f"创建房间: room_id={room_id}, room_name={room_name}, host={host_name}({player_id})")
+        logger.info(f"创建房间: room_id={room_id}, room_name={room_name}, host={host_name}({player_id}), user_id={user_id}")
         return room, host
     
     def get_room(self, room_id: str) -> Optional[RoomInfo]:
@@ -62,11 +63,20 @@ class RoomManager:
         """List all available rooms."""
         return list(self.rooms.values())
     
-    def join_room(self, room_id: str, player_name: str, player_type: PlayerType = PlayerType.HUMAN) -> Optional[PlayerInfo]:
+    def join_room(self, room_id: str, player_name: str, player_type: PlayerType = PlayerType.HUMAN, 
+                   user_id: str = None) -> Optional[PlayerInfo]:
         """Add a player to a room."""
         room = self.get_room(room_id)
         if not room or len(room.players) >= room.max_players:
             return None
+        
+        # 检查该用户是否已在房间中（只对人类玩家检查）
+        if user_id and player_type == PlayerType.HUMAN:
+            existing_player = self.get_player_by_user_id(room_id, user_id)
+            if existing_player:
+                # 用户已在房间，返回现有玩家信息（支持重连）
+                logger.info(f"用户重连: room_id={room_id}, user_id={user_id}, player={existing_player.name}")
+                return existing_player
         
         # Check for duplicate name
         existing_names = [p.name for p in room.players]
@@ -80,12 +90,23 @@ class RoomManager:
             id=player_id,
             name=player_name,
             player_type=player_type,
-            seat=seat
+            seat=seat,
+            user_id=user_id if player_type == PlayerType.HUMAN else None
         )
         
         room.players.append(player)
-        logger.info(f"玩家加入: room_id={room_id}, player={player_name}({player_id}), type={player_type.value}, seat={seat}")
+        logger.info(f"玩家加入: room_id={room_id}, player={player_name}({player_id}), user_id={user_id}, type={player_type.value}, seat={seat}")
         return player
+    
+    def get_player_by_user_id(self, room_id: str, user_id: str) -> Optional[PlayerInfo]:
+        """通过用户ID查找房间中的玩家"""
+        room = self.get_room(room_id)
+        if not room:
+            return None
+        for player in room.players:
+            if player.user_id == user_id:
+                return player
+        return None
     
     def add_ai_players(self, room_id: str, count: int = 1, names: List[str] = None, 
                         players: List[dict] = None) -> List[PlayerInfo]:

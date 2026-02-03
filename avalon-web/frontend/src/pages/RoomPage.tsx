@@ -1,5 +1,6 @@
 /**
  * Room page - Waiting room before game starts.
+ * Note: This page is protected by ProtectedRoute, so user is always logged in.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -10,12 +11,14 @@ import { Room, Player } from '../types';
 import UserInfoPanel, { PERSONALITY_OPTIONS } from '../components/UserInfoPanel';
 import BuyCreditsModal from '../components/BuyCreditsModal';
 import { toast } from '../store/toastStore';
+import { useAICredits } from '../utils/auth';
 
 export default function RoomPage() {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
   const { playerId, setRoom, connect, disconnect, isConnected, messages } = useGameStore();
-  const { token, user, isLoggedIn, updateAICredits } = useAuthStore();
+  const { token, user, isLoggedIn } = useAuthStore();
+  const { checkCredits, consumeCredits } = useAICredits();
   
   const [room, setRoomData] = useState<Room | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,12 +108,7 @@ export default function RoomPage() {
                               players?: Array<{ name: string; personality: string }>) => {
     if (!roomId) return;
     
-    // 添加AI需要登录
-    if (!isLoggedIn || !token) {
-      setError('添加AI玩家需要先登录');
-      return;
-    }
-    
+    // ProtectedRoute 已确保用户登录，这里直接使用 token
     try {
       await roomApi.addAI(roomId, count, names, token, players);
       await loadRoom();
@@ -121,6 +119,8 @@ export default function RoomPage() {
   };
 
   const handleShowAINameModal = (count: number) => {
+    // ProtectedRoute 已确保用户登录
+    
     setAddingAICount(count);
     setAINameInput('');
     setSelectedAIPlayers([]);
@@ -233,21 +233,24 @@ export default function RoomPage() {
   };
 
   const handleStartGame = async () => {
-    if (!roomId || !playerId) return;
+    if (!roomId || !playerId || !token) return;
     
-    // 检查AI额度（如果已登录）
+    // 检查AI额度（如果有AI玩家）
     const aiCount = room?.players?.filter(p => p.player_type === 'ai').length || 0;
-    if (isLoggedIn && user && aiCount > user.ai_credits) {
-      setError(`AI额度不足，需要 ${aiCount} 人次，当前剩余 ${user.ai_credits} 人次`);
-      return;
+    if (aiCount > 0) {
+      const creditCheck = checkCredits(aiCount);
+      if (!creditCheck.ok) {
+        setError(creditCheck.message || 'AI额度不足');
+        return;
+      }
     }
     
     setStarting(true);
     try {
       const result = await gameApi.start(roomId, playerId, token);
       // 更新本地AI额度
-      if (isLoggedIn && user && result.ai_consumed) {
-        updateAICredits(user.ai_credits - result.ai_consumed);
+      if (result.ai_consumed) {
+        consumeCredits(result.ai_consumed);
       }
       navigate(`/game/${roomId}`);
     } catch (err: any) {

@@ -242,7 +242,7 @@ async def get_user_info(token: str):
     user_info = user_manager.get_user_info(token)
     if not user_info:
         raise HTTPException(status_code=401, detail="用户未登录或token已过期")
-    return user_info
+    return {"user": user_info}
 
 
 @app.get("/api/user/ai-credits")
@@ -269,7 +269,8 @@ async def add_favorite_ai_name(token: str, request: FavoriteAINameRequest):
     """添加常用AI玩家名"""
     success, message = user_manager.add_favorite_ai_name(token, request.name)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -278,7 +279,8 @@ async def remove_favorite_ai_name(token: str, name: str):
     """删除常用AI玩家名"""
     success, message = user_manager.remove_favorite_ai_name(token, name)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -287,7 +289,8 @@ async def update_favorite_ai_names(token: str, request: UpdateFavoriteAINamesReq
     """更新常用AI玩家名列表"""
     success, message = user_manager.update_favorite_ai_names(token, request.names)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -305,7 +308,8 @@ async def add_favorite_ai_player(token: str, request: FavoriteAIPlayerRequest):
     """添加常用AI玩家"""
     success, message = user_manager.add_favorite_ai_player(token, request.name, request.personality)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -314,7 +318,8 @@ async def update_favorite_ai_player(token: str, name: str, request: FavoriteAIPl
     """更新常用AI玩家"""
     success, message = user_manager.update_favorite_ai_player(token, name, request.personality)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -323,7 +328,8 @@ async def remove_favorite_ai_player(token: str, name: str):
     """删除常用AI玩家"""
     success, message = user_manager.remove_favorite_ai_player(token, name)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -332,7 +338,8 @@ async def update_favorite_ai_players(token: str, request: UpdateFavoriteAIPlayer
     """更新常用AI玩家列表"""
     success, message = user_manager.update_favorite_ai_players(token, request.players)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        status_code = 401 if "未登录" in message else 400
+        raise HTTPException(status_code=status_code, detail=message)
     return {"success": True, "message": message}
 
 
@@ -515,9 +522,18 @@ async def list_rooms():
 
 @app.post("/api/rooms")
 async def create_room(request: CreateRoomRequest):
-    """Create a new game room."""
-    room, host = room_manager.create_room(request.room_name, request.player_name)
-    logger.info(f"API: 创建房间 room_id={room.id}, host={host.name}")
+    """Create a new game room. Requires login."""
+    # 必须登录才能创建房间
+    if not request.token:
+        raise HTTPException(status_code=401, detail="创建房间需要先登录")
+    
+    user = user_manager.get_user_by_session(request.token)
+    if not user:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    
+    user_id = user['id']
+    room, host = room_manager.create_room(request.room_name, request.player_name, user_id)
+    logger.info(f"API: 创建房间 room_id={room.id}, host={host.name}, user_id={user_id}")
     return {
         "room_id": room.id,
         "player_id": host.id,
@@ -554,7 +570,17 @@ async def get_room(room_id: str):
 
 @app.post("/api/rooms/{room_id}/join")
 async def join_room(room_id: str, request: JoinRoomRequest):
-    """Join an existing room."""
+    """Join an existing room. Requires login."""
+    # 必须登录才能加入房间
+    if not request.token:
+        raise HTTPException(status_code=401, detail="加入房间需要先登录")
+    
+    user = user_manager.get_user_by_session(request.token)
+    if not user:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    
+    user_id = user['id']
+    
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
@@ -562,7 +588,8 @@ async def join_room(room_id: str, request: JoinRoomRequest):
     if room.game_state.phase != GamePhase.WAITING:
         raise HTTPException(status_code=400, detail="游戏已开始，无法加入")
     
-    player = room_manager.join_room(room_id, request.player_name, request.player_type)
+    # 传入 user_id，支持重连检测
+    player = room_manager.join_room(room_id, request.player_name, request.player_type, user_id)
     if not player:
         raise HTTPException(status_code=400, detail="房间已满")
     
@@ -770,7 +797,15 @@ async def stop_game(room_id: str, player_id: str):
 
 @app.post("/api/rooms/{room_id}/start")
 async def start_game(room_id: str, player_id: str, token: Optional[str] = None):
-    """Start the game (host only)."""
+    """Start the game (host only). Requires login."""
+    # 必须登录才能开始游戏
+    if not token:
+        raise HTTPException(status_code=401, detail="开始游戏需要先登录")
+    
+    user = user_manager.get_user_by_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    
     room = room_manager.get_room(room_id)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
@@ -781,18 +816,9 @@ async def start_game(room_id: str, player_id: str, token: Optional[str] = None):
     if len(room.players) != 7:
         raise HTTPException(status_code=400, detail="需要7名玩家才能开始游戏")
     
-    # 统计AI玩家数量
+    # 统计AI玩家数量，如果有AI则检查额度
     ai_count = sum(1 for p in room.players if p.player_type == PlayerType.AI)
-    
-    # 如果有AI玩家，必须登录并且有足够额度
     if ai_count > 0:
-        if not token:
-            raise HTTPException(status_code=401, detail="使用AI玩家需要先登录")
-        
-        user = user_manager.get_user_by_session(token)
-        if not user:
-            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
-        
         sufficient, msg = user_manager.check_ai_credits(token, ai_count)
         if not sufficient:
             raise HTTPException(status_code=400, detail=msg)

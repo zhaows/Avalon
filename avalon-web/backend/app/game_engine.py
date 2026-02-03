@@ -89,6 +89,7 @@ AVALON_RULES = """
 PLAYER_PROMPT_TEMPLATE = """
 ## 身份设定
 你是「{player_name}」，一名阿瓦隆游戏玩家。
+- 你的代号：{agent_name}（对话中你会以此代号出现）
 - 角色：{role}
 - 阵营：{team_display}
 - 性格特点：{personality}
@@ -100,8 +101,10 @@ PLAYER_PROMPT_TEMPLATE = """
 ## 游戏规则摘要
 {avalon_rules}
 
-## 玩家列表
-{all_players}
+## 玩家列表与代号对照
+{name_mapping}
+
+注意：对话记录中玩家以代号（如player_1）出现，请根据上表理解每条消息来自哪位玩家。你发言时直接使用玩家名称（如{player_name}），不要使用代号。
 
 ## 行动指南
 
@@ -121,7 +124,7 @@ PLAYER_PROMPT_TEMPLATE = """
 ### 投票阶段（队伍投票/任务投票）
 - 格式：<我的投票是: 同意/反对> 或 <我的投票是: 成功/失败>
 - 投票是秘密的，可以与发言立场不一致
-- 好人只能出成功票；坏人可选成功或失败票
+- 做任务时，好人一般只出成功票；坏人需要投出失败票来破坏任务，但是也可以故意投出成功票来误导大家(谨慎选择)
 
 ### 队长组队
 - 根据本轮任务人数选择队员
@@ -143,6 +146,11 @@ HOST_PROMPT_TEMPLATE = """
 
     ## 玩家信息
     {game_info}
+
+    **重要说明：**
+    - 对话记录中玩家消息以「代号」(如 player_1) 标识来源
+    - 你与玩家交流时使用「玩家名」
+    - 角色信息仅供你控制游戏流程（如找刺客执行刺杀），绝不可在对话中透露任何玩家的角色
 
     ## 核心职责
     1. **流程控制**：严格按照 队长组队→全员发言→全员投票→执行任务→公布结果 的顺序进行
@@ -254,7 +262,6 @@ ROLE_CONFIG = {
 # 7-player role distribution
 SEVEN_PLAYER_ROLES = ["梅林", "派西维尔", "忠臣", "忠臣", "刺客", "莫甘娜", "奥伯伦"]
 
-
 class AwalonAssistantAgent(AssistantAgent):
     """Custom AssistantAgent for Avalon game."""
 
@@ -324,6 +331,7 @@ class GameEngine:
             azure_deployment=AZURE_DEPLOYMENT,
             api_version=API_VERSION,
             parallel_tool_calls=False,
+            max_tokens=4096,  # 设置最大输出token数，避免截断
         )
     
     async def broadcast(self, msg_type: str, content: Any, player_id: str = None, player_name: str = None):
@@ -497,17 +505,17 @@ class GameEngine:
             agent_name = player.agent_name
             display_name = player.display_name
             info = self.players_info[agent_name]
-            
+
             # Check if this is a human player
             is_human = player.player_type == PlayerType.HUMAN
-            
+
             if is_human:
                 # Create input function for this specific player (使用agent_name作为key)
                 def make_input_func(aname):
                     async def input_func(prompt: str = "", cancellation_token = None) -> str:
                         return await self._get_human_input(aname, prompt)
                     return input_func
-                
+
                 # Use UserProxyAgent for human players, name使用Python标识符
                 agent = UserProxyAgent(
                     name=agent_name,
@@ -518,18 +526,23 @@ class GameEngine:
                 # Use AI agent for AI players
                 # 计算阵营显示名称
                 team_display = "好人方（蓝方）" if info["role"] in ["梅林", "派西维尔", "忠臣"] else "坏人方（红方）"
+                # 构建名称映射表，让AI知道agent_name和display_name的对应关系
+                name_mapping_str = "\n".join([f"- {p.agent_name} = {p.display_name}" for p in self.room.players])
                 # 在提示词中使用display_name让AI知道自己的显示名
                 prompt = PLAYER_PROMPT_TEMPLATE.format(
                     avalon_rules=AVALON_RULES,
-                    all_players=display_names,  # 使用显示名列表
+                    name_mapping=name_mapping_str,  # 名称映射表
                     player_name=display_name,   # 使用显示名
+                    agent_name=agent_name,      # 让AI知道自己的代号
                     role=info["role"],
                     team_display=team_display,  # 阵营显示
                     personality=info["personality"],
                     info=info["info"],
                     role_notes=info["role_notes"]
                 )
-                
+                # 日志记录AI玩家提示词
+                logger.info(f"[PROMPT][{agent_name}({display_name})]:\n{prompt}")
+
                 player_context = FilterVoteInfoContext()
                 agent = AwalonAssistantAgent(
                     name=agent_name,  # 使用Python标识符
@@ -541,23 +554,27 @@ class GameEngine:
             player_agents.append(agent)
         
         # Create host agent - 使用display_name映射让Host知道玩家名字
-        # 构建游戏信息，包含agent_name到display_name的映射
-        game_info_with_mapping = {
-            "roles": self.roles_assignment,
-            "name_mapping": {p.agent_name: p.display_name for p in self.room.players}
-        }
+        # 构建玩家信息表，格式化为易读的表格
+        player_table_lines = ["| 代号(对话标识) | 玩家名(交流用) | 角色(仅供流程控制) |", "| --- | --- | --- |"]
+        for p in self.room.players:
+            role = self.roles_assignment[p.display_name]
+            player_table_lines.append(f"| {p.agent_name} | {p.display_name} | {role} |")
+        player_table = "\n".join(player_table_lines)
+        
         host_prompt = HOST_PROMPT_TEMPLATE.format(
             avalon_rules=AVALON_RULES,
-            game_info=game_info_with_mapping
+            game_info=player_table
         )
-        
+        # 日志记录Host提示词
+        logger.info(f"[PROMPT][Host]:\n{host_prompt}")
+
         host_agent = AwalonAssistantAgent(
             name="Host",
             handoffs=agent_names,  # 使用agent_name列表
             model_client=self.model_client,
             system_message=host_prompt,
         )
-        
+
         return host_agent, player_agents
     
     async def start_game(self):
@@ -618,7 +635,7 @@ class GameEngine:
                 try:
                     source = getattr(message, 'source', 'system')
                     content = getattr(message, 'content', str(message))
-                    logger.info(f"游戏消息: [{source}] {str(content)[:100]}{'...' if len(str(content)) > 100 else ''}")
+                    logger.info(f"游戏消息: [{source}] {str(content)}")
                     
                     if source == 'user':
                         continue  # Skip autogen user messages
