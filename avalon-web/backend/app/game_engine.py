@@ -11,7 +11,7 @@ from datetime import datetime
 
 from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
 from autogen_agentchat.teams import Swarm
-from autogen_agentchat.conditions import TextMentionTermination
+from autogen_agentchat.conditions import TextMentionTermination, ExternalTermination
 from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
 from autogen_core.model_context import UnboundedChatCompletionContext
 from autogen_core.models import LLMMessage, UserMessage
@@ -316,6 +316,7 @@ class GameEngine:
         self.human_input_callback = human_input_callback  # Async function to get human input
         self.team = None
         self.is_running = False
+        self.external_termination = None  # 用于手动终止游戏
         self.players_info: Dict[str, dict] = {}  # agent_name -> player info
         self.roles_assignment: Dict[str, str] = {}  # display_name -> role
         self.human_players: Dict[str, str] = {}  # agent_name -> player_id mapping for human players
@@ -333,6 +334,22 @@ class GameEngine:
             parallel_tool_calls=False,
             max_tokens=4096,  # 设置最大输出token数，避免截断
         )
+    
+    async def stop_game(self):
+        """手动停止游戏，通过 ExternalTermination 终止 Swarm 任务"""
+        if self.external_termination:
+            logger.info(f"手动终止游戏: room={self.room.id}")
+            self.external_termination.set()
+            self.is_running = False
+            # 取消所有等待中的人类输入
+            for agent_name, future in list(self._pending_input.items()):
+                if not future.done():
+                    future.cancel()
+            self._pending_input.clear()
+            for agent_name, future in list(self._user_input_sync.items()):
+                if not future.done():
+                    future.cancel()
+            self._user_input_sync.clear()
     
     async def broadcast(self, msg_type: str, content: Any, player_id: str = None, player_name: str = None):
         """Broadcast a message to all connected clients."""
@@ -592,10 +609,11 @@ class GameEngine:
         host_agent, player_agents = self._create_agents()
         
         # Create Swarm team
-        termination = TextMentionTermination("terminate")
+        terminate_termination = TextMentionTermination("terminate")
+        self.external_termination = ExternalTermination()
         self.team = Swarm(
             [host_agent] + player_agents,
-            termination_condition=termination,
+            termination_condition= terminate_termination | self.external_termination,
             max_turns=500,
         )
         

@@ -713,7 +713,7 @@ async def leave_room(room_id: str, player_id: str):
     if was_game_running:
         # Stop game engine
         if room_id in game_engines:
-            game_engines[room_id].is_running = False
+            await game_engines[room_id].stop_game()
             del game_engines[room_id]
         
         # Reset game state
@@ -819,7 +819,7 @@ async def stop_game_from_home(room_id: str, token: str):
     
     # 停止游戏引擎
     if room_id in game_engines:
-        game_engines[room_id].is_running = False
+        await game_engines[room_id].stop_game()
         del game_engines[room_id]
         logger.info(f"API: 从首页停止游戏 room_id={room_id}, user_id={user['id']}")
     
@@ -856,7 +856,7 @@ async def stop_game(room_id: str, player_id: str):
     
     # Stop game engine
     if room_id in game_engines:
-        game_engines[room_id].is_running = False
+        await game_engines[room_id].stop_game()
         del game_engines[room_id]
         logger.info(f"API: 停止游戏 room_id={room_id}, by={player_name}")
     
