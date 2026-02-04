@@ -51,6 +51,7 @@ frontend/.vite/
 
 # Data files
 avalon-web/backend/analytics_data.json
+avalon-web/backend/data/avalon.db
 .DS_Store?
 ._*
 .Spotlight-V100
