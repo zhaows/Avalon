@@ -109,21 +109,23 @@ PLAYER_PROMPT_TEMPLATE = """
 ## 行动指南
 
 ### 核心策略
-1. **信息收集**：关注每位玩家的发言倾向、投票选择、组队偏好
-2. **逻辑推理**：根据任务成败、投票记录推断可疑玩家,投票是要根据自己的推理来决定
+1. **信息收集**：关注每位玩家的发言内容、组队偏好；分析每一轮的任务结果和投票情况，积累线索
+2. **逻辑推理**：根据任务成败、投票记录、发言内容推断可疑玩家,投票是要根据自己的推理来决定
 3. **身份伪装**：适时假装某角色或透露部分信息引导局势
 4. **阵营配合**：好人找队友完成任务，坏人制造分歧破坏任务
+5. **核心要点**：每一轮好人都需要尽量保证任务成功，坏人则需要尽量搞砸任务
 
 ### 发言阶段
-- 直接说出你的观点，不要暴露内心想法，可以根据自己的判断(给出事实的判断依据)提出质疑或支持他人
-- 根据性格特点来表达：{personality}
-- 可以质疑、支持、引导讨论，但要符合你的人设
-- 好人：推理找坏人，但梅林要隐藏身份
-- 坏人：伪装好人，制造混乱，误导他人
+- 基于已知信息和局势推理，给出你的判断；不能编造事实或盲目发言；发言阶段只是交流观点，不涉及投票和任务选择
+- 直接表达观点，可质疑或支持他人，但用事实依据支撑
+- 根据性格特点{personality}来表达
+- 好人重点：推理找坏人，梅林隐藏身份
+- 坏人重点：伪装身份，制造分歧
 
 ### 投票阶段（队伍投票/任务投票）
 - 格式：<我的投票是: 同意/反对> 或 <我的投票是: 成功/失败>
 - 投票是秘密的，可以与发言立场不一致
+- 组队投票时：根据已知和推理决定。好人反对含有可疑坏人的队伍；坏人反对不含队友的队伍
 - 做任务时，好人一般只出成功票；坏人需要投出失败票来破坏任务，但是也可以故意投出成功票来误导大家(谨慎选择)
 
 ### 队长组队
@@ -153,7 +155,7 @@ HOST_PROMPT_TEMPLATE = """
     - 角色信息仅供你控制游戏流程（如找刺客执行刺杀），绝不可在对话中透露任何玩家的角色
 
     ## 核心职责
-    1. **流程控制**：严格按照 队长组队→全员发言→全员投票→执行任务→公布结果 的顺序进行
+    1. **流程控制**：严格按照 队长组队→全员发言→全员投票(必须有这个过程，即使玩家在发言阶段表达了投票意图，也需要重新投票)→执行任务→公布结果 的顺序进行
     2. **信息保密**：绝不透露玩家角色、投票详情、任务出票情况
     3. **中立客观**：不偏袒任何阵营，不暗示任何玩家身份
     4. **节奏把控**：简洁引导，玩家回复后简单确认即可，不做冗余总结
@@ -169,16 +171,20 @@ HOST_PROMPT_TEMPLATE = """
     - 提示队长选择本轮所需人数的队员
     
     2. **全员发言** (phase: speaking)
-    - 从队长开始，顺时针依次发言，请确定好队长再安排顺序
-    - 每位玩家发言后继续下一位，直到全部发言完毕
+    - 从队长开始，按座位号递增顺序依次发言（到7号后循环回1号）
+    - 例如：队长座位号是3，则发言顺序为 3→4→5→6→7→1→2
+    - 每位玩家发言后继续下一位，直到全部7人发言完毕
     
     3. **全员投票** (phase: voting)
-    - 依次收集每位玩家的投票，从队长开始，顺时针顺序（同意/反对）
-    - 投票结束后只公布：X票同意，X票反对，组队成功/失败
-    - 连续4次否决，第5任队长强制组队
+    - 从队长开始，按座位号递增顺序依次投票（到7号后循环回1号）
+    - 例如：队长座位号是3，则投票顺序为 3→4→5→6→7→1→2
+    - 每次只让一位玩家投票，收到明确的"同意"或"反对"后再进行下一位，不要透露玩家的投票结果
+    - 如果玩家未明确表态，继续询问直到得到投票结果
+    - 全部7人投票结束后，公布结果：X票同意，X票反对，组队成功/失败
     
     4. **执行任务** (phase: mission)
-    - 仅队员参与，依次收集任务票（成功/失败）
+    - 仅队员参与，按座位号递增顺序依次收集任务票（成功/失败），不要透露玩家的任务票
+    - 如果未得到玩家明确表态，则继续询问直到得到任务结果
     - 任务结束后只公布：X张成功票，X张失败票，任务成功/失败
     
     5. **轮次结算**
@@ -197,9 +203,17 @@ HOST_PROMPT_TEMPLATE = """
 
     ## 输出格式（必须严格遵守）
 
+    **phase字段必须是以下值之一：**
+    - `team_select`: 队长组队阶段
+    - `speaking`: 全员发言阶段
+    - `voting`: 全员投票阶段（投票是否同意组队）
+    - `mission`: 执行任务阶段（队员出成功/失败票）
+    - `assassinate`: 终局刺杀阶段
+    - `game_over`: 游戏结束
+
     ```json
     {{
-        "phase": "当前阶段",
+        "phase": "team_select|speaking|voting|mission|assassinate|game_over",
         "mission_round": 当前轮次,
         "captain": "队长名",
         "team_members": ["队员1", "队员2"],
@@ -213,7 +227,7 @@ HOST_PROMPT_TEMPLATE = """
 
     ## 注意事项
     - 完成引导后自动交给对应玩家，不要说"handoff"
-    - 发言简洁，避免重复总结玩家已说过的内容
+    - 发言简洁，避免重复总结玩家已说过的内容，你的发言不能使用玩家代号，必须使用玩家名称
     - 保持游戏节奏流畅
 """
 
@@ -558,7 +572,7 @@ class GameEngine:
                     role_notes=info["role_notes"]
                 )
                 # 日志记录AI玩家提示词
-                logger.info(f"[PROMPT][{agent_name}({display_name})]:\n{prompt}")
+                logger.info(f"[PROMPT][{agent_name}({display_name})]:\n{prompt}, prompt length={len(prompt)}")
 
                 player_context = FilterVoteInfoContext()
                 agent = AwalonAssistantAgent(
@@ -572,10 +586,10 @@ class GameEngine:
         
         # Create host agent - 使用display_name映射让Host知道玩家名字
         # 构建玩家信息表，格式化为易读的表格
-        player_table_lines = ["| 代号(对话标识) | 玩家名(交流用) | 角色(仅供流程控制) |", "| --- | --- | --- |"]
+        player_table_lines = ["| 座位号 | 代号(对话标识) | 玩家名(交流用) | 角色(仅供流程控制) |", "| --- | --- | --- | --- |"]
         for p in self.room.players:
             role = self.roles_assignment[p.display_name]
-            player_table_lines.append(f"| {p.agent_name} | {p.display_name} | {role} |")
+            player_table_lines.append(f"| {p.seat} | {p.agent_name} | {p.display_name} | {role} |")
         player_table = "\n".join(player_table_lines)
         
         host_prompt = HOST_PROMPT_TEMPLATE.format(
@@ -583,7 +597,7 @@ class GameEngine:
             game_info=player_table
         )
         # 日志记录Host提示词
-        logger.info(f"[PROMPT][Host]:\n{host_prompt}")
+        logger.info(f"[PROMPT][Host]:\n{host_prompt}, prompt length={len(host_prompt)}")
 
         host_agent = AwalonAssistantAgent(
             name="Host",
@@ -716,7 +730,7 @@ class GameEngine:
                         })
                         break
                     # sleep 根据display_content长度调整
-                    sleep_time = min(max(len(display_content) / 20.0, 0.5), 8.0)
+                    sleep_time = min(max(len(display_content) / 30.0, 0.5), 8.0)
                     await asyncio.sleep(sleep_time)
                         
                 except Exception as e:
@@ -726,6 +740,11 @@ class GameEngine:
             logger.error(f'游戏运行错误: {e}')
             await self.broadcast("error", {"message": str(e)})
         finally:
+            # 记录agent上下文及系统提示词长度
+            for agent in [host_agent] + player_agents:
+                if hasattr(agent, '_model_context'):
+                    context_length = len(str(await agent._model_context.get_messages()))
+                    logger.info(f"Agent {agent.name} 上下文长度: {context_length} tokens")
             self.is_running = False
     
     def _parse_host_output(self, content: str) -> Tuple[Optional[dict], str]:
