@@ -168,19 +168,17 @@ HOST_PROMPT_TEMPLATE = """
 
     ### 每轮流程
     1. **队长组队** (phase: team_select)
-    - 提示队长选择本轮所需人数的队员
+    - 提示队长选择本轮所需人数的队员<important>
     
     2. **全员发言** (phase: speaking)
-    - 从队长开始，按座位号递增顺序依次发言（到7号后循环回1号）
-    - 例如：队长座位号是3，则发言顺序为 3→4→5→6→7→1→2
+    - 从队长开始，按座位号递增顺序依次发言（到7号后循环回1号）例如：队长座位号是3，则发言顺序为 3→4→5→6→7→1→2<important>
     - 每位玩家发言后继续下一位，直到全部7人发言完毕
     
     3. **全员投票** (phase: voting)
-    - 从队长开始，按座位号递增顺序依次投票（到7号后循环回1号）
-    - 例如：队长座位号是3，则投票顺序为 3→4→5→6→7→1→2
-    - 每次只让一位玩家投票，收到明确的"同意"或"反对"后再进行下一位，不要透露玩家的投票结果
+    - 从队长开始，按座位号递增顺序依次投票（到7号后循环回1号）例如：队长座位号是3，则投票顺序为 3→4→5→6→7→1→2<important>
+    - 每次只让一位玩家投票，收到明确的"同意"或"反对"后再进行下一位，不要透露玩家的投票结果<important>
     - 如果玩家未明确表态，继续询问直到得到投票结果
-    - 全部7人投票结束后，公布结果：X票同意，X票反对，组队成功/失败
+    - 全部7人投票结束后，必须总结投票结果：X票同意，X票反对，组队成功/失败
     
     4. **执行任务** (phase: mission)
     - 仅队员参与，按座位号递增顺序依次收集任务票（成功/失败），不要透露玩家的任务票
@@ -201,15 +199,7 @@ HOST_PROMPT_TEMPLATE = """
     - 公布所有玩家角色
     - 输出 terminate
 
-    ## 输出格式（必须严格遵守）
-
-    **phase字段必须是以下值之一：**
-    - `team_select`: 队长组队阶段
-    - `speaking`: 全员发言阶段
-    - `voting`: 全员投票阶段（投票是否同意组队）
-    - `mission`: 执行任务阶段（队员出成功/失败票）
-    - `assassinate`: 终局刺杀阶段
-    - `game_over`: 游戏结束
+    ## 输出格式（必须严格遵守）<important>
 
     ```json
     {{
@@ -223,10 +213,19 @@ HOST_PROMPT_TEMPLATE = """
         "next_player": "下一个行动的玩家名"
     }}
     ```
-    然后是你对玩家说的话（简洁明了）。
+    然后是你对玩家说的话（简洁明了, 表述清楚任务, 仅提及当前玩家，不要提前规划）。
+
+    **phase字段必须是以下值之一：**
+    - `team_select`: 队长组队阶段
+    - `speaking`: 全员发言阶段
+    - `voting`: 全员投票阶段（投票是否同意组队）
+    - `mission`: 执行任务阶段（队员出成功/失败票）
+    - `assassinate`: 终局刺杀阶段
+    - `game_over`: 游戏结束
+
 
     ## 注意事项
-    - 完成引导后自动交给对应玩家，不要说"handoff"
+    - 完成引导后自动交给对应玩家，并向玩家清晰的说明任务，不要说"handoff"<important>
     - 发言简洁，避免重复总结玩家已说过的内容，你的发言不能使用玩家代号，必须使用玩家名称
     - 保持游戏节奏流畅
 """
@@ -312,6 +311,11 @@ class FilterVoteInfoContext(UnboundedChatCompletionContext):
                 if message.source != "Host":
                     if message.content and "我的投票是" in message.content:
                         message.content = "[内容已隐藏]"
+            # filter transfer messages 
+            if message and message.content and isinstance(message.content, list):
+                continue
+            if message and message.content and message.content.startswith("Transferred to"):
+                continue
             messages_out.append(message)
         return messages_out
 
@@ -688,6 +692,9 @@ class GameEngine:
                     # 跳过空消息
                     if not content.strip():
                         continue
+                    if 'Error' in content or 'Exception' in content:
+                        logger.error(f"收到错误消息: [{source}] {content}")
+                        continue
                     
                     # 设置用于显示的内容和来源
                     display_content = content
@@ -745,6 +752,7 @@ class GameEngine:
                 if hasattr(agent, '_model_context'):
                     context_length = len(str(await agent._model_context.get_messages()))
                     logger.info(f"Agent {agent.name} 上下文长度: {context_length} tokens")
+                    logger.info(f"Agent {agent.name} 上下文：{await agent._model_context.get_messages()}")
             self.is_running = False
     
     def _parse_host_output(self, content: str) -> Tuple[Optional[dict], str]:
