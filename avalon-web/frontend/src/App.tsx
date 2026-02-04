@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, Component, ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
@@ -10,6 +10,42 @@ import { trackPageView } from './utils/analytics'
 import { setOnAuthExpired, authApi } from './api'
 import { useAuthStore } from './store/authStore'
 import { useToastStore } from './store/toastStore'
+
+// 错误边界组件 - 防止整个应用因未捕获错误而白屏
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('App Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-900">
+          <div className="text-center p-8">
+            <h1 className="text-2xl font-bold text-red-400 mb-4">页面出错了</h1>
+            <p className="text-slate-400 mb-4">{this.state.error?.message}</p>
+            <button 
+              onClick={() => window.location.href = '/'}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              返回首页
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Analytics tracker component
 function AnalyticsTracker() {
@@ -25,10 +61,13 @@ function AnalyticsTracker() {
 
 // 应用启动时验证 token 有效性
 function AuthValidator() {
-  const { isLoggedIn, token, logout, login } = useAuthStore();
+  const { isLoggedIn, token, logout, login, _hasHydrated } = useAuthStore();
   const addToast = useToastStore(state => state.addToast);
 
   useEffect(() => {
+    // 等待 hydration 完成后再验证
+    if (!_hasHydrated) return;
+    
     // 如果本地有登录状态，验证 token 是否有效
     if (isLoggedIn && token) {
       authApi.getUserInfo(token)
@@ -38,13 +77,18 @@ function AuthValidator() {
             login(token, response.user);
           }
         })
-        .catch(() => {
+        .catch((error) => {
           // token 无效，清除登录状态
-          logout();
-          addToast('登录已过期，请重新登录', 'warning');
+          // 注意：如果是 401，onAuthExpired 可能已经调用了 logout
+          // 这里检查一下避免重复操作
+          const { isLoggedIn: stillLoggedIn } = useAuthStore.getState();
+          if (stillLoggedIn) {
+            logout();
+            addToast({ type: 'warning', title: '登录已过期，请重新登录' });
+          }
         });
     }
-  }, []); // 只在应用启动时执行一次
+  }, [_hasHydrated]); // 依赖 _hasHydrated，hydration 完成后执行
 
   return null;
 }
@@ -58,8 +102,8 @@ function AuthExpiredHandler() {
     setOnAuthExpired((reason?: string) => {
       logout();
       // 显示具体原因（如被其他设备踢出）
-      const message = reason || '登录已过期，请重新登录';
-      addToast(message, 'warning');
+      const title = reason || '登录已过期，请重新登录';
+      addToast({ type: 'warning', title });
     });
   }, [logout, addToast]);
   
@@ -85,7 +129,7 @@ function CrossTabSync() {
         // localStorage 被清空 - 其他窗口登出了
         if (isLoggedIn) {
           logout();
-          addToast('您已在其他窗口登出', 'info');
+          addToast({ type: 'info', title: '您已在其他窗口登出' });
         }
         return;
       }
@@ -99,12 +143,12 @@ function CrossTabSync() {
         // 其他窗口登出了
         if (!state.isLoggedIn && isLoggedIn) {
           logout();
-          addToast('您已在其他窗口登出', 'info');
+          addToast({ type: 'info', title: '您已在其他窗口登出' });
         }
         // 其他窗口登录了（或切换了账号）
         else if (state.isLoggedIn && state.token && state.token !== token) {
           login(state.token, state.user);
-          addToast('登录状态已同步', 'info');
+          addToast({ type: 'info', title: '登录状态已同步' });
         }
       } catch (e) {
         console.error('Failed to parse storage event:', e);
@@ -120,33 +164,35 @@ function CrossTabSync() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <div className="min-h-screen">
-        <AnalyticsTracker />
-        <AuthValidator />
-        <AuthExpiredHandler />
-        <CrossTabSync />
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/login" element={
-            <GuestRoute>
-              <LoginPage />
-            </GuestRoute>
-          } />
-          <Route path="/room/:roomId" element={
-            <ProtectedRoute>
-              <RoomPage />
-            </ProtectedRoute>
-          } />
-          <Route path="/game/:roomId" element={
-            <ProtectedRoute>
-              <GamePage />
-            </ProtectedRoute>
-          } />
-        </Routes>
-        <ToastContainer />
-      </div>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <div className="min-h-screen">
+          <AnalyticsTracker />
+          <AuthValidator />
+          <AuthExpiredHandler />
+          <CrossTabSync />
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/login" element={
+              <GuestRoute>
+                <LoginPage />
+              </GuestRoute>
+            } />
+            <Route path="/room/:roomId" element={
+              <ProtectedRoute>
+                <RoomPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/game/:roomId" element={
+              <ProtectedRoute>
+                <GamePage />
+              </ProtectedRoute>
+            } />
+          </Routes>
+          <ToastContainer />
+        </div>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
 

@@ -26,7 +26,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // 等待从 localStorage 恢复状态完成
   if (!_hasHydrated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
           <span className="text-slate-400">加载中...</span>
@@ -37,11 +37,13 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   // If not authenticated, redirect to login with return URL
   if (!isLoggedIn || !token) {
+    // 使用 key 强制重新渲染 Navigate 组件
     return (
       <Navigate 
         to="/login" 
         state={{ from: location.pathname + location.search }} 
         replace 
+        key={Date.now()}
       />
     );
   }
@@ -66,7 +68,7 @@ export function GuestRoute({ children, redirectTo = '/' }: GuestRouteProps) {
   // 等待从 localStorage 恢复状态完成
   if (!_hasHydrated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
           <span className="text-slate-400">加载中...</span>
@@ -78,7 +80,7 @@ export function GuestRoute({ children, redirectTo = '/' }: GuestRouteProps) {
   // If authenticated, redirect to original destination or home
   if (isLoggedIn && token) {
     const from = (location.state as any)?.from || redirectTo;
-    return <Navigate to={from} replace />;
+    return <Navigate to={from} replace key={Date.now()} />;
   }
 
   return <>{children}</>;
