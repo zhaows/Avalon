@@ -1,7 +1,9 @@
 /**
  * Buy AI Credits Modal - 购买AI玩家额度弹窗
+ * 使用 React Portal 渲染到 body，避免被父容器的 CSS 属性影响
  */
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { paymentApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../store/toastStore';
@@ -108,8 +110,9 @@ export default function BuyCreditsModal({ isOpen, onClose }: BuyCreditsModalProp
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+  // 使用 Portal 渲染到 body，避免被父容器的 backdrop-filter 等 CSS 属性影响 fixed 定位
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
       <div className="glass rounded-2xl p-6 w-full max-w-md fade-in max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -263,6 +266,7 @@ export default function BuyCreditsModal({ isOpen, onClose }: BuyCreditsModalProp
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

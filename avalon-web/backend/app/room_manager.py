@@ -67,16 +67,20 @@ class RoomManager:
                    user_id: str = None) -> Optional[PlayerInfo]:
         """Add a player to a room."""
         room = self.get_room(room_id)
-        if not room or len(room.players) >= room.max_players:
+        if not room:
             return None
         
-        # 检查该用户是否已在房间中（只对人类玩家检查）
+        # 先检查该用户是否已在房间中（只对人类玩家检查）- 支持重连（即使房间已满也可以重连）
         if user_id and player_type == PlayerType.HUMAN:
             existing_player = self.get_player_by_user_id(room_id, user_id)
             if existing_player:
                 # 用户已在房间，返回现有玩家信息（支持重连）
                 logger.info(f"用户重连: room_id={room_id}, user_id={user_id}, player={existing_player.name}")
                 return existing_player
+        
+        # 检查房间是否已满（在重连检查之后）
+        if len(room.players) >= room.max_players:
+            return None
         
         # Check for duplicate name
         existing_names = [p.name for p in room.players]

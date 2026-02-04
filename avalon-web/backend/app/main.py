@@ -513,7 +513,8 @@ async def list_rooms():
                 "name": r.name,
                 "player_count": len(r.players),
                 "max_players": r.max_players,
-                "phase": r.game_state.phase.value
+                "phase": r.game_state.phase.value,
+                "host_user_id": next((p.user_id for p in r.players if p.id == r.host_id), None)
             }
             for r in rooms
         ]
@@ -758,6 +759,83 @@ async def leave_room(room_id: str, player_id: str):
     }
 
 
+@app.delete("/api/rooms/{room_id}")
+async def delete_room(room_id: str, token: str):
+    """Delete a room (host only). Used from home page by room owner."""
+    # 验证登录
+    user = user_manager.get_user_by_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    
+    room = room_manager.get_room(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证是否为房主（通过 user_id 验证）
+    host_player = next((p for p in room.players if p.id == room.host_id), None)
+    if not host_player or host_player.user_id != user['id']:
+        raise HTTPException(status_code=403, detail="只有房主可以删除房间")
+    
+    was_game_running = room.game_state.phase != GamePhase.WAITING
+    
+    # 如果游戏正在进行，先停止
+    if was_game_running:
+        if room_id in game_engines:
+            game_engines[room_id].is_running = False
+            del game_engines[room_id]
+    
+    # 通知所有玩家房间已解散
+    await connection_manager.broadcast_to_room(room_id, {
+        "type": "room_closed",
+        "message": "房主已解散房间"
+    })
+    
+    # 删除房间
+    room_manager.delete_room(room_id)
+    logger.info(f"API: 房主删除房间 room_id={room_id}, user_id={user['id']}")
+    
+    return {"success": True, "message": "房间已删除"}
+
+
+@app.post("/api/rooms/{room_id}/stop-from-home")
+async def stop_game_from_home(room_id: str, token: str):
+    """Stop the game from home page (host only). Returns room to waiting state."""
+    # 验证登录
+    user = user_manager.get_user_by_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    
+    room = room_manager.get_room(room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 验证是否为房主（通过 user_id 验证）
+    host_player = next((p for p in room.players if p.id == room.host_id), None)
+    if not host_player or host_player.user_id != user['id']:
+        raise HTTPException(status_code=403, detail="只有房主可以结束游戏")
+    
+    if room.game_state.phase == GamePhase.WAITING:
+        raise HTTPException(status_code=400, detail="游戏尚未开始")
+    
+    # 停止游戏引擎
+    if room_id in game_engines:
+        game_engines[room_id].is_running = False
+        del game_engines[room_id]
+        logger.info(f"API: 从首页停止游戏 room_id={room_id}, user_id={user['id']}")
+    
+    # 重置游戏状态
+    room.game_state = GameState()
+    
+    # 通知所有玩家
+    await connection_manager.broadcast_to_room(room_id, {
+        "type": "game_stopped",
+        "message": "🎮 房主结束了本局游戏，返回房间准备新的一局",
+        "player_name": host_player.name
+    })
+    
+    return {"success": True, "message": "游戏已结束，房间返回等待状态"}
+
+
 # ==================== Game API ====================
 
 @app.post("/api/rooms/{room_id}/stop")
@@ -904,7 +982,7 @@ async def get_game_state(room_id: str, player_id: str):
 
 @app.websocket("/ws/{room_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
-    """WebSocket connection for real-time game updates."""
+    """WebSocket connection for room updates (supports multiple connections per player)."""
     room = room_manager.get_room(room_id)
     if not room:
         await websocket.close(code=4004, reason="房间不存在")
@@ -947,15 +1025,83 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     })
     
     except WebSocketDisconnect:
-        connection_manager.disconnect(room_id, player_id)
-        player.is_online = False
-        ws_logger.info(f"WebSocket断开: room={room_id}, player={player.name}({player_id})")
+        connection_manager.disconnect(room_id, player_id, websocket)
         
-        await connection_manager.broadcast_to_room(room_id, {
-            "type": "player_offline",
-            "player_id": player_id,
-            "player_name": player.name
-        })
+        # 检查该玩家是否还有其他连接，如果没有则标记为离线
+        remaining = connection_manager.get_connected_players(room_id)
+        if player_id not in remaining:
+            player.is_online = False
+            ws_logger.info(f"WebSocket断开(无剩余连接): room={room_id}, player={player.name}({player_id})")
+            
+            await connection_manager.broadcast_to_room(room_id, {
+                "type": "player_offline",
+                "player_id": player_id,
+                "player_name": player.name
+            })
+        else:
+            ws_logger.debug(f"WebSocket断开(仍有连接): room={room_id}, player={player.name}({player_id})")
+
+
+@app.websocket("/ws/game/{room_id}/{player_id}")
+async def game_websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
+    """WebSocket connection for game page (exclusive - kicks old connection)."""
+    room = room_manager.get_room(room_id)
+    if not room:
+        await websocket.close(code=4004, reason="房间不存在")
+        return
+    
+    player = room_manager.get_player_in_room(room_id, player_id)
+    if not player:
+        await websocket.close(code=4004, reason="玩家不在房间中")
+        return
+    
+    # 游戏连接是独占的，新连接会踢掉旧连接
+    await connection_manager.connect_game(websocket, room_id, player_id)
+    player.is_online = True
+    ws_logger.info(f"WebSocket游戏连接: room={room_id}, player={player.name}({player_id})")
+    
+    # Notify others
+    await connection_manager.broadcast_to_room(room_id, {
+        "type": "player_online",
+        "player_id": player_id,
+        "player_name": player.name
+    }, exclude={player_id})
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            if message.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+            
+            elif message.get("type") == "player_input":
+                # Handle human player input
+                engine = game_engines.get(room_id)
+                if engine:
+                    input_text = message.get("content", "")
+                    success = engine.provide_human_input(player.name, input_text)
+                    await websocket.send_json({
+                        "type": "input_received",
+                        "success": success
+                    })
+    
+    except WebSocketDisconnect:
+        connection_manager.disconnect_game(room_id, player_id, websocket)
+        
+        # 检查该玩家是否还有其他连接
+        remaining = connection_manager.get_connected_players(room_id)
+        if player_id not in remaining:
+            player.is_online = False
+            ws_logger.info(f"WebSocket游戏断开(无剩余连接): room={room_id}, player={player.name}({player_id})")
+            
+            await connection_manager.broadcast_to_room(room_id, {
+                "type": "player_offline",
+                "player_id": player_id,
+                "player_name": player.name
+            })
+        else:
+            ws_logger.debug(f"WebSocket游戏断开(仍有连接): room={room_id}, player={player.name}({player_id})")
 
 
 # ==================== Health Check ====================

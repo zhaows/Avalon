@@ -94,6 +94,20 @@ export const roomApi = {
       `/rooms/${roomId}/leave?player_id=${playerId}`,
       { method: 'POST' }
     ),
+
+  // 房主删除房间（从首页操作）
+  delete: (roomId: string, token: string) =>
+    request<{ success: boolean; message: string }>(
+      `/rooms/${roomId}?token=${token}`,
+      { method: 'DELETE' }
+    ),
+
+  // 房主结束游戏（从首页操作，房间回到等待状态）
+  stopGameFromHome: (roomId: string, token: string) =>
+    request<{ success: boolean; message: string }>(
+      `/rooms/${roomId}/stop-from-home?token=${token}`,
+      { method: 'POST' }
+    ),
 };
 
 // Game APIs

@@ -33,7 +33,7 @@ interface GameStore {
   clearMessages: () => void;
   
   // WebSocket actions
-  connect: () => void;
+  connect: (isGamePage?: boolean) => void;  // isGamePage=true 使用专用游戏连接
   disconnect: () => void;
   sendMessage: (message: any) => void;
   handleMessage: (data: any) => void;
@@ -73,7 +73,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearMessages: () => set({ messages: [] }),
 
-  connect: () => {
+  connect: (isGamePage = false) => {
     const { roomId, playerId, ws: existingWs } = get();
     if (!roomId || !playerId) return;
     
@@ -96,9 +96,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // For reverse proxy, WebSocket should go through the same host
     const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${wsHost}/ws/${roomId}/${playerId}`;
+    // 游戏页使用专用路径 /ws/game/，其他页面使用普通路径 /ws/
+    const wsPath = isGamePage ? `/ws/game/${roomId}/${playerId}` : `/ws/${roomId}/${playerId}`;
+    const wsUrl = `${protocol}//${wsHost}${wsPath}`;
     
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl, isGamePage ? '(game page)' : '(room page)');
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -112,9 +114,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       get().handleMessage(data);
     };
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
+    ws.onclose = (event) => {
+      console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
       set({ isConnected: false, ws: null });
+      
+      // 处理被踢出的情况（游戏页专用连接被新连接踢掉）
+      if (event.code === 4001) {
+        // 导入 toast 会有循环依赖，这里使用自定义事件通知
+        window.dispatchEvent(new CustomEvent('ws-kicked', { 
+          detail: { reason: event.reason || '您已在其他页面打开游戏' }
+        }));
+      }
     };
 
     ws.onerror = (error) => {

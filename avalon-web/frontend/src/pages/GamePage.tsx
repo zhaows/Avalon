@@ -8,6 +8,7 @@ import { gameApi, roomApi } from '../api';
 import { useGameStore } from '../store/gameStore';
 import { Player, Role, Team } from '../types';
 import ConfirmModal from '../components/ConfirmModal';
+import { toast } from '../store/toastStore';
 
 interface RoleInfo {
   role: Role;
@@ -51,13 +52,25 @@ export default function GamePage() {
       return;
     }
 
-    connect();
+    // 游戏页使用专用连接（会踢掉其他页面的游戏连接）
+    connect(true);
     loadGameState();
     
     // Poll for game state less frequently since messages come via WebSocket
     const interval = setInterval(loadGameState, 5000);
     return () => clearInterval(interval);
   }, [roomId, playerId]);
+
+  // 监听被踢出事件
+  useEffect(() => {
+    const handleKicked = (event: CustomEvent) => {
+      toast.warning(event.detail.reason || '您已在其他页面打开游戏');
+      navigate(`/room/${roomId}`);
+    };
+    
+    window.addEventListener('ws-kicked', handleKicked as EventListener);
+    return () => window.removeEventListener('ws-kicked', handleKicked as EventListener);
+  }, [navigate, roomId]);
 
   // Auto leave room when page is closed/refreshed
   useEffect(() => {
@@ -233,91 +246,92 @@ export default function GamePage() {
   return (
     <div className="h-screen p-3 flex flex-col overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* 顶部状态栏 */}
-      <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-3 mb-3 flex-shrink-0 border border-slate-700/50 shadow-lg">
-        <div className="flex items-center gap-4 flex-wrap">
-          {/* 游戏标题 */}
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🏰</span>
-            <span className="font-bold text-white text-lg">阿瓦隆</span>
+      <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-2 sm:p-3 mb-3 flex-shrink-0 border border-slate-700/50 shadow-lg">
+        <div className="flex items-center gap-2 sm:gap-4">
+          {/* 游戏标题 - 移动端隐藏文字 */}
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            <span className="text-lg sm:text-xl">🏰</span>
+            <span className="font-bold text-white text-sm sm:text-lg hidden sm:inline">阿瓦隆</span>
           </div>
           
-          <div className="w-px h-6 bg-slate-600/50"></div>
+          <div className="hidden sm:block w-px h-6 bg-slate-600/50 flex-shrink-0"></div>
 
-          {/* 游戏状态标签 */}
+          {/* 游戏状态标签 - 移动端紧凑一行 */}
           {phaseInfo && (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30">
-                <span className="text-base">{phaseInfo.emoji}</span>
-                <span className="text-sm font-medium text-purple-300">{phaseInfo.label}阶段</span>
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              <div className="flex items-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 py-0.5 sm:py-1.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30">
+                <span className="text-xs sm:text-base">{phaseInfo.emoji}</span>
+                <span className="text-[10px] sm:text-sm font-medium text-purple-300">{phaseInfo.label}</span>
               </div>
-              <div className="px-3 py-1.5 rounded-lg bg-slate-700/50 text-sm text-slate-300">
-                第 <span className="text-yellow-400 font-bold">{hostGameState?.mission_round || 1}</span> 轮任务
+              <div className="px-1.5 sm:px-3 py-0.5 sm:py-1.5 rounded-lg bg-slate-700/50 text-[10px] sm:text-sm text-slate-300">
+                R<span className="text-yellow-400 font-bold">{hostGameState?.mission_round || 1}</span>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-700/50">
-                <span className="text-sm text-slate-400">战绩</span>
-                <span className="text-blue-400 font-bold">{hostGameState?.mission_success_count || 0}</span>
-                <span className="text-slate-500">vs</span>
-                <span className="text-red-400 font-bold">{hostGameState?.mission_fail_count || 0}</span>
+              <div className="flex items-center gap-0.5 sm:gap-2 px-1.5 sm:px-3 py-0.5 sm:py-1.5 rounded-lg bg-slate-700/50">
+                <span className="text-blue-400 font-bold text-[10px] sm:text-sm">{hostGameState?.mission_success_count || 0}</span>
+                <span className="text-slate-500 text-[10px] sm:text-xs">:</span>
+                <span className="text-red-400 font-bold text-[10px] sm:text-sm">{hostGameState?.mission_fail_count || 0}</span>
               </div>
               {hostGameState?.captain && (
-                <div className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-sm">
-                  <span className="text-yellow-400">👑 队长: </span>
+                <div className="hidden md:flex px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs sm:text-sm items-center gap-1">
+                  <span className="text-yellow-400">👑</span>
                   <span className="text-yellow-300 font-medium">{hostGameState.captain}</span>
                 </div>
               )}
             </div>
           )}
 
-          {/* 轮到你提示 */}
+          {/* 轮到你提示 - 移动端精简 */}
           {hostGameState?.next_player === playerName && (
-            <div className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/30 to-cyan-500/30 border border-blue-400/50 animate-pulse">
-              <span className="text-blue-300 font-bold text-sm">⭐ 轮到你行动！</span>
+            <div className="px-1.5 sm:px-3 py-0.5 sm:py-1.5 rounded-lg bg-gradient-to-r from-blue-500/30 to-cyan-500/30 border border-blue-400/50 animate-pulse flex-shrink-0">
+              <span className="text-blue-300 font-bold text-[10px] sm:text-sm">⭐<span className="hidden sm:inline"> 轮到你</span></span>
             </div>
           )}
 
           {/* 右侧操作按钮 */}
-          <div className="flex-1"></div>
-          <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0"></div>
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             <button 
               onClick={() => setAutoScroll(!autoScroll)} 
-              className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all
+              className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-all
                 ${autoScroll 
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' 
                   : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'}`}
             >
-              {autoScroll ? '⏬' : '⏸️'} {autoScroll ? '自动滚动' : '已暂停'}
+              {autoScroll ? '⏬' : '⏸️'} <span className="hidden sm:inline">{autoScroll ? '自动滚动' : '已暂停'}</span>
             </button>
             {isHost && gameState?.is_running && (
               <button 
                 onClick={handleEndGameClick} 
-                className="px-3 py-1.5 rounded-lg text-xs bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5 hover:bg-red-500/30 transition-all"
+                className="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1 sm:gap-1.5 hover:bg-red-500/30 transition-all"
               >
-                🛑 结束游戏
+                🛑 <span className="hidden sm:inline">结束游戏</span>
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* 主内容区：左右布局 */}
-      <div className="flex-1 flex gap-3 min-h-0">
-        {/* 左侧面板：角色+玩家 */}
-        <div className="w-72 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
-          {/* 角色卡片 */}
-          <div className={`rounded-xl p-4 shadow-lg transition-all ${
-            isGood 
-              ? 'bg-gradient-to-br from-blue-900/40 to-cyan-900/30 border border-blue-500/40' 
-              : 'bg-gradient-to-br from-red-900/40 to-orange-900/30 border border-red-500/40'
-          }`}>
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-3xl shadow-inner ${
-                isGood ? 'bg-blue-500/20' : 'bg-red-500/20'
-              }`}>
-                {roleInfo?.role === '梅林' ? '🧙' : roleInfo?.role === '派西维尔' ? '🛡️' : roleInfo?.role === '忠臣' ? '⚔️' : roleInfo?.role === '刺客' ? '🗡️' : roleInfo?.role === '莫甘娜' ? '🦹' : roleInfo?.role === '奥伯伦' ? '👻' : roleInfo?.role === '莫德雷德' ? '😈' : '🎭'}
-              </div>
+      {/* 主内容区：桌面左右布局，移动端上下布局 */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-2 lg:gap-3 min-h-0 overflow-hidden">
+        {/* 左侧/顶部面板：角色+玩家 - 移动端更紧凑 */}
+        <div className="lg:w-72 flex-shrink-0 flex flex-col lg:flex-col gap-1.5 lg:gap-3 overflow-y-auto lg:overflow-y-auto max-h-[22vh] sm:max-h-[28vh] lg:max-h-none">
+          {/* 移动端横向布局：角色卡片 + 玩家列表并排 */}
+          <div className="flex flex-row lg:flex-col gap-1.5 lg:gap-3">
+            {/* 角色卡片 */}
+            <div className={`rounded-lg lg:rounded-xl p-2 lg:p-4 shadow-lg transition-all flex-1 lg:flex-none ${
+              isGood 
+                ? 'bg-gradient-to-br from-blue-900/40 to-cyan-900/30 border border-blue-500/40' 
+                : 'bg-gradient-to-br from-red-900/40 to-orange-900/30 border border-red-500/40'
+            }`}>
+              <div className="flex items-center gap-1.5 lg:gap-3 mb-1 lg:mb-3">
+                <div className={`w-8 h-8 lg:w-14 lg:h-14 rounded-lg lg:rounded-xl flex items-center justify-center text-lg lg:text-3xl shadow-inner ${
+                  isGood ? 'bg-blue-500/20' : 'bg-red-500/20'
+                }`}>
+                  {roleInfo?.role === '梅林' ? '🧙' : roleInfo?.role === '派西维尔' ? '🛡️' : roleInfo?.role === '忠臣' ? '⚔️' : roleInfo?.role === '刺客' ? '🗡️' : roleInfo?.role === '莘甘娜' ? '🦹' : roleInfo?.role === '奥伯伦' ? '👻' : roleInfo?.role === '莘德雷德' ? '😈' : '🎭'}
+                </div>
               <div>
-                <div className="font-bold text-white text-lg">{roleInfo?.role || '等待分配'}</div>
-                <div className={`text-sm font-medium ${isGood ? 'text-blue-400' : 'text-red-400'}`}>
+                <div className="font-bold text-white text-sm lg:text-lg">{roleInfo?.role || '等待分配'}</div>
+                <div className={`text-[10px] lg:text-sm font-medium ${isGood ? 'text-blue-400' : 'text-red-400'}`}>
                   {roleInfo ? (isGood ? '✨ 好人阵营' : '💀 坏人阵营') : '...'}
                 </div>
               </div>
@@ -325,10 +339,10 @@ export default function GamePage() {
             
             {/* 玩家人设 */}
             {roleInfo?.personality && (
-              <div className="mb-3 group relative">
-                <div className="p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/30 cursor-help">
-                  <div className="text-xs text-purple-400 mb-1 font-medium">🎭 你的人设</div>
-                  <div className="text-sm text-purple-200 truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">
+              <div className="mb-2 lg:mb-3 group relative">
+                <div className="p-1.5 lg:p-2.5 rounded-lg bg-purple-500/10 border border-purple-500/30 cursor-help">
+                  <div className="text-[10px] lg:text-xs text-purple-400 mb-0.5 lg:mb-1 font-medium">🎭 你的人设</div>
+                  <div className="text-[10px] lg:text-sm text-purple-200 truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">
                     {roleInfo.personality}
                   </div>
                 </div>
@@ -341,16 +355,16 @@ export default function GamePage() {
 
             {/* 角色知道的信息 */}
             {roleInfo?.info && roleInfo.info !== '无' && (
-              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                <div className="text-xs text-yellow-400 mb-1.5 font-medium">💡 你知道的秘密</div>
-                <div className="text-sm text-yellow-200 leading-relaxed">{roleInfo.info}</div>
+              <div className="p-1.5 lg:p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="text-[10px] lg:text-xs text-yellow-400 mb-0.5 lg:mb-1.5 font-medium">💡 你知道的秘密</div>
+                <div className="text-[10px] lg:text-sm text-yellow-200 leading-relaxed">{roleInfo.info}</div>
               </div>
             )}
             
             {/* 角色说明 */}
             {roleInfo?.role_notes && (
-              <div className="mt-3 pt-3 border-t border-slate-600/30">
-                <div className="text-xs text-slate-400 leading-relaxed">
+              <div className="mt-2 lg:mt-3 pt-2 lg:pt-3 border-t border-slate-600/30">
+                <div className="text-[10px] lg:text-xs text-slate-400 leading-relaxed">
                   📖 {roleInfo.role_notes}
                 </div>
               </div>
@@ -358,13 +372,14 @@ export default function GamePage() {
           </div>
 
           {/* 玩家列表 */}
-          <div className="bg-slate-800/60 backdrop-blur-sm rounded-xl p-4 flex-1 min-h-0 overflow-y-auto border border-slate-700/50 shadow-lg">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-base">👥</span>
-              <span className="text-sm font-medium text-white">玩家列表</span>
-              <span className="text-xs text-slate-500">({gameState?.players.length || 0}人)</span>
+          <div className="bg-slate-800/60 backdrop-blur-sm rounded-lg lg:rounded-xl p-2 lg:p-4 flex-1 min-h-0 overflow-y-auto border border-slate-700/50 shadow-lg">
+            <div className="flex items-center gap-1 lg:gap-2 mb-1 lg:mb-3">
+              <span className="text-xs lg:text-base">👥</span>
+              <span className="text-[10px] lg:text-sm font-medium text-white">玩家</span>
+              <span className="text-[10px] lg:text-xs text-slate-500">({gameState?.players.length || 0})</span>
             </div>
-            <div className="space-y-2">
+            {/* 移动端网格布局，桌面端列表布局 */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-1 lg:space-y-2 lg:block">
               {gameState?.players.map((player) => {
                 const isMe = player.name === playerName;
                 const isCaptain = player.name === hostGameState?.captain;
@@ -373,19 +388,19 @@ export default function GamePage() {
                 return (
                   <div 
                     key={player.id} 
-                    className={`relative px-3 py-2 rounded-lg text-sm transition-all
+                    className={`relative px-1.5 lg:px-3 py-1 lg:py-2 rounded-md lg:rounded-lg text-[10px] lg:text-sm transition-all
                       ${isMe 
                         ? 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border border-blue-500/40 shadow-sm' 
                         : isTeam 
                           ? 'bg-emerald-500/10 border border-emerald-500/30' 
                           : 'bg-slate-700/30 hover:bg-slate-700/50'}
-                      ${isNext ? 'ring-2 ring-yellow-400/50 ring-offset-1 ring-offset-slate-900' : ''}`}
+                      ${isNext ? 'ring-1 lg:ring-2 ring-yellow-400/50' : ''}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{player.player_type === 'ai' ? '🤖' : '👤'}</span>
-                      <span className={`flex-1 ${isMe ? 'text-blue-300 font-medium' : 'text-slate-200'}`}>
+                    <div className="flex items-center gap-0.5 lg:gap-2">
+                      <span className="text-xs lg:text-base">{player.player_type === 'ai' ? '🤖' : '👤'}</span>
+                      <span className={`flex-1 truncate ${isMe ? 'text-blue-300 font-medium' : 'text-slate-200'}`}>
                         {player.name}
-                        {isMe && <span className="text-xs text-blue-400 ml-1.5 bg-blue-500/20 px-1.5 py-0.5 rounded">你</span>}
+                        {isMe && <span className="hidden lg:inline text-xs text-blue-400 ml-1.5 bg-blue-500/20 px-1.5 py-0.5 rounded">你</span>}
                         {/* AI玩家展示人设图标 */}
                         {player.player_type === 'ai' && player.personality && (
                           <span 
@@ -404,7 +419,7 @@ export default function GamePage() {
                             {/* 悬浮展示完整人设 - 使用fixed定位避免被裁剪 */}
                             {expandedPersonality === player.id && (
                               <span 
-                                className="fixed z-[9999] p-2 bg-slate-800 border border-purple-500/30 rounded-lg shadow-lg whitespace-nowrap"
+                                className="fixed z-[9999] p-2 bg-slate-800 border border-purple-500/30 rounded-lg shadow-lg max-w-[80vw]"
                                 style={{ 
                                   left: '50%', 
                                   top: '50%', 
@@ -418,10 +433,10 @@ export default function GamePage() {
                           </span>
                         )}
                       </span>
-                      <div className="flex items-center gap-1.5">
-                        {isCaptain && <span className="text-sm" title="队长">👑</span>}
-                        {isTeam && !isCaptain && <span className="text-sm" title="队员">🎯</span>}
-                        {isNext && <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">行动中</span>}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {isCaptain && <span className="text-xs lg:text-sm" title="队长">👑</span>}
+                        {isTeam && !isCaptain && <span className="text-xs lg:text-sm" title="队员">🎯</span>}
+                        {isNext && <span className="hidden lg:inline text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">行动中</span>}
                       </div>
                     </div>
                   </div>
@@ -429,10 +444,11 @@ export default function GamePage() {
               })}
             </div>
           </div>
+          </div>
         </div>
 
-        {/* 右侧消息区域 */}
-        <div className="flex-1 flex flex-col min-h-0">
+        {/* 右侧/底部消息区域 - 移动端保证足够高度 */}
+        <div className="flex-1 flex flex-col min-h-[40vh] lg:min-h-0">
           {error && (
             <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-2">
               <span>⚠️</span>

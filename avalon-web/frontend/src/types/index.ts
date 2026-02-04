@@ -43,6 +43,7 @@ export interface RoomListItem {
   player_count: number;
   max_players: number;
   phase: GamePhase;
+  host_user_id: string | null;  // 房主的user_id，用于判断当前用户是否是房主
 }
 
 export interface GameState {

@@ -305,37 +305,37 @@ export default function RoomPage() {
   const emptySlots = 7 - room.players.length;
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
+    <div className="min-h-screen p-3 sm:p-4 md:p-6">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="glass rounded-2xl p-6 mb-6 fade-in">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="glass rounded-xl sm:rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 fade-in">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">{room.name}</h1>
-              <div className="flex items-center gap-4 text-sm">
+              <h1 className="text-xl sm:text-3xl font-bold text-white mb-1 sm:mb-2">{room.name}</h1>
+              <div className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm flex-wrap">
                 <span className="text-slate-400">
-                  房间ID: <span className="text-slate-300 font-mono">{room.id}</span>
+                  <span className="hidden sm:inline">房间ID: </span><span className="text-slate-300 font-mono">{room.id}</span>
                 </span>
-                <span className={`flex items-center gap-1.5 ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-                  {isConnected ? '已连接' : '断开连接'}
+                <span className={`flex items-center gap-1 sm:gap-1.5 ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
+                  {isConnected ? '已连接' : '断开'}
                 </span>
                 {/* 用户信息显示 */}
                 {isLoggedIn && user && (
                   <span className="text-yellow-400">
-                    🎮 {user.ai_credits} AI额度
+                    🎮 {user.ai_credits} <span className="hidden sm:inline">AI额度</span>
                   </span>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               {/* 用户状态 */}
               <UserInfoPanel compact />
               <button
                 onClick={handleLeaveRoom}
-                className="btn btn-danger"
+                className="btn btn-danger text-xs sm:text-sm px-2 sm:px-4"
               >
-                <span>🚪</span> 离开房间
+                <span>🚪</span> <span className="hidden sm:inline">离开房间</span><span className="sm:hidden">离开</span>
               </button>
             </div>
           </div>
@@ -348,45 +348,45 @@ export default function RoomPage() {
         )}
 
         {/* Player Grid */}
-        <div className="glass rounded-2xl p-6 mb-6 fade-in" style={{ animationDelay: '0.1s' }}>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+        <div className="glass rounded-xl sm:rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 fade-in" style={{ animationDelay: '0.1s' }}>
+          <div className="flex items-center justify-between mb-4 sm:mb-6">
+            <h2 className="text-base sm:text-xl font-bold text-white flex items-center gap-2">
               <span>👥</span> 玩家列表
             </h2>
             <div className="flex items-center gap-2">
-              <div className="h-2 flex-1 w-32 bg-slate-700 rounded-full overflow-hidden">
+              <div className="h-1.5 sm:h-2 w-20 sm:w-32 bg-slate-700 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500"
                   style={{ width: `${(room.players.length / 7) * 100}%` }}
                 ></div>
               </div>
-              <span className="text-slate-300 font-medium">{room.players.length}/7</span>
+              <span className="text-slate-300 font-medium text-sm sm:text-base">{room.players.length}/7</span>
             </div>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-4">
             {room.players.map((player: Player, index: number) => (
               <div
                 key={player.id}
-                className={`group relative p-4 rounded-xl border-2 transition-all duration-300 card-hover
+                className={`group relative p-2 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all duration-300 card-hover
                   ${player.id === playerId
                     ? 'bg-blue-500/10 border-blue-500/50'
                     : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
                   }`}
                 style={{ animationDelay: `${index * 0.05}s` }}
               >
-                <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className={`w-8 h-8 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center text-lg sm:text-2xl flex-shrink-0
                     ${player.player_type === 'ai' 
                       ? 'bg-purple-500/20 text-purple-400' 
                       : 'bg-emerald-500/20 text-emerald-400'}`}>
                     {player.player_type === 'ai' ? '🤖' : '👤'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-semibold truncate">{player.name}</span>
+                    <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                      <span className="text-white font-semibold text-sm sm:text-base truncate max-w-[60px] sm:max-w-none">{player.name}</span>
                       {player.id === room.host_id && (
-                        <span className="text-yellow-400 text-lg" title="房主">👑</span>
+                        <span className="text-yellow-400 text-sm sm:text-lg" title="房主">👑</span>
                       )}
                       {/* AI玩家展示人设图标 */}
                       {player.player_type === 'ai' && player.personality && (
@@ -415,8 +415,8 @@ export default function RoomPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-400">座位 {player.seat}</span>
+                    <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                      <span className="text-slate-400">座{player.seat}</span>
                       {player.id === playerId && (
                         <span className="text-blue-400">(你)</span>
                       )}
@@ -453,18 +453,18 @@ export default function RoomPage() {
         </div>
 
         {/* Action Panel */}
-        <div className="glass rounded-2xl p-6 fade-in" style={{ animationDelay: '0.2s' }}>
+        <div className="glass rounded-xl sm:rounded-2xl p-4 sm:p-6 fade-in" style={{ animationDelay: '0.2s' }}>
           {isHost ? (
             <>
-              <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+              <h2 className="text-base sm:text-xl font-bold text-white mb-4 sm:mb-6 flex items-center gap-2">
                 <span>🎮</span> 房主操作
               </h2>
               
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2 sm:gap-3">
                 <button
                   onClick={() => handleShowAINameModal(1)}
                   disabled={room.players.length >= 7}
-                  className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm px-2 sm:px-4"
                 >
                   <span>🤖</span> 添加AI
                 </button>
@@ -473,25 +473,25 @@ export default function RoomPage() {
                   <button
                     onClick={() => handleShowAINameModal(emptySlots)}
                     disabled={room.players.length >= 7}
-                    className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="btn bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm px-2 sm:px-4"
                   >
-                    <span>🤖</span> 填充AI ({emptySlots}个)
+                    <span>🤖</span> 填充<span className="hidden sm:inline">AI</span> ({emptySlots})
                   </button>
                 )}
                 
-                <div className="flex-1"></div>
+                <div className="flex-1 min-w-0"></div>
                 
                 <button
                   onClick={handleStartGame}
                   disabled={!canStart || starting}
-                  className={`btn text-white font-semibold px-8
+                  className={`btn text-white font-semibold px-4 sm:px-8 text-xs sm:text-sm w-full sm:w-auto mt-2 sm:mt-0
                     ${canStart 
                       ? 'btn-success' 
                       : 'bg-slate-600 cursor-not-allowed'}`}
                 >
                   {starting ? (
                     <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       开始中...
                     </>
                   ) : canStart ? (
@@ -500,17 +500,17 @@ export default function RoomPage() {
                     </>
                   ) : (
                     <>
-                      <span>⏳</span> 需要7人 ({room.players.length}/7)
+                      <span>⏳</span> <span className="hidden sm:inline">需要</span>7人 ({room.players.length}/7)
                     </>
                   )}
                 </button>
               </div>
             </>
           ) : (
-            <div className="text-center py-8">
-              <div className="text-4xl mb-4 animate-float">⏳</div>
-              <p className="text-slate-300 text-lg">等待房主开始游戏</p>
-              <p className="text-slate-500 text-sm mt-2">
+            <div className="text-center py-4 sm:py-8">
+              <div className="text-3xl sm:text-4xl mb-2 sm:mb-4 animate-float">⏳</div>
+              <p className="text-slate-300 text-base sm:text-lg">等待房主开始游戏</p>
+              <p className="text-slate-500 text-xs sm:text-sm mt-1 sm:mt-2">
                 房主可以添加AI玩家并开始游戏
               </p>
             </div>
@@ -812,8 +812,8 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* 购买额度弹窗 */}
-      <BuyCreditsModal isOpen={showBuyModal} onClose={() => setShowBuyModal(false)} />
+      {/* 购买额度弹窗 - 放在页面最外层 */}
+      {showBuyModal && <BuyCreditsModal isOpen={showBuyModal} onClose={() => setShowBuyModal(false)} />}
     </div>
   );
 }
