@@ -31,6 +31,7 @@ interface AuthStore {
   token: string | null;
   user: UserInfo | null;
   _hasHydrated: boolean;  // 是否已从 localStorage 恢复状态
+  _authChecked: boolean;  // token 是否已经过服务器验证
   
   // Actions
   login: (token: string, user: UserInfo) => void;
@@ -46,6 +47,7 @@ interface AuthStore {
   updateFavoriteAIPlayer: (name: string, personality: string) => void;
   removeFavoriteAIPlayer: (name: string) => void;
   setHasHydrated: (state: boolean) => void;
+  setAuthChecked: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -55,17 +57,22 @@ export const useAuthStore = create<AuthStore>()(
       token: null,
       user: null,
       _hasHydrated: false,
+      _authChecked: false,
 
       setHasHydrated: (state: boolean) => {
         set({ _hasHydrated: state });
       },
 
+      setAuthChecked: (state: boolean) => {
+        set({ _authChecked: state });
+      },
+
       login: (token, user) => {
-        set({ isLoggedIn: true, token, user });
+        set({ isLoggedIn: true, token, user, _authChecked: true });
       },
 
       logout: () => {
-        set({ isLoggedIn: false, token: null, user: null });
+        set({ isLoggedIn: false, token: null, user: null, _authChecked: true });
       },
 
       updateUser: (userData) => {

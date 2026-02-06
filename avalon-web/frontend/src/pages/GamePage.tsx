@@ -592,26 +592,99 @@ export default function GamePage() {
           <div className="mt-3 p-4 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-xl border border-blue-500/30 flex-shrink-0">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-base">✏️</span>
-              <span className="text-sm font-medium text-blue-300">轮到你发言或决策</span>
+              <span className="text-sm font-medium text-blue-300">
+                {hostGameState?.phase === 'voting' ? '请对当前队伍进行投票' :
+                 hostGameState?.phase === 'mission' ? '请选择任务行动' :
+                 hostGameState?.phase === 'team_select' ? '轮到你组队' :
+                 hostGameState?.phase === 'assassinate' ? '请选择刺杀目标' :
+                 '轮到你发言或决策'}
+              </span>
             </div>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendInput()}
-                placeholder="输入你的发言或决策..."
-                className="flex-1 px-4 py-3 bg-slate-900/80 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
-                autoFocus
-              />
-              <button
-                onClick={handleSendInput}
-                disabled={!inputText.trim()}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all shadow-lg"
-              >
-                发送 →
-              </button>
-            </div>
+            {/* 投票阶段：同意/反对 */}
+            {hostGameState?.phase === 'voting' ? (
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    sendMessage({ type: 'player_input', content: '同意' });
+                    setWaitingForInput(false);
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg text-base"
+                >
+                  ✓ 同意
+                </button>
+                <button
+                  onClick={() => {
+                    sendMessage({ type: 'player_input', content: '反对' });
+                    setWaitingForInput(false);
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold rounded-xl transition-all shadow-lg text-base"
+                >
+                  ✗ 反对
+                </button>
+              </div>
+            ) : hostGameState?.phase === 'mission' ? (
+              /* 任务阶段：成功/失败 */
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => {
+                    sendMessage({ type: 'player_input', content: '成功' });
+                    setWaitingForInput(false);
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold rounded-xl transition-all shadow-lg text-base"
+                >
+                  ✓ 成功
+                </button>
+                <button
+                  onClick={() => {
+                    sendMessage({ type: 'player_input', content: '失败' });
+                    setWaitingForInput(false);
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold rounded-xl transition-all shadow-lg text-base"
+                >
+                  ✗ 失败
+                </button>
+              </div>
+            ) : (
+              /* 发言/组队/刺杀等阶段：文本输入 + 玩家快捷选项 */
+              <div className="space-y-3">
+                {/* 玩家快捷选择按钮 */}
+                {gameState?.players && gameState.players.length > 0 && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-1.5">点击插入玩家名称：</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {gameState.players.filter(p => p.name !== playerName).map((player) => (
+                        <button
+                          key={player.id}
+                          onClick={() => setInputText(prev => prev + player.name)}
+                          className="px-2.5 py-1 bg-slate-700/80 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition-colors border border-slate-600/50"
+                        >
+                          {player.player_type === 'ai' ? '🤖' : '👤'} {player.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* 文本输入框 */}
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSendInput()}
+                    placeholder="输入你的发言或决策..."
+                    className="flex-1 px-4 py-3 bg-slate-900/80 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSendInput}
+                    disabled={!inputText.trim()}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all shadow-lg"
+                  >
+                    发送 →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
           </div>

@@ -3,7 +3,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { roomApi } from '../api';
+import { roomApi, authApi } from '../api';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { RoomListItem } from '../types';
@@ -14,8 +14,11 @@ import { toast } from '../store/toastStore';
 export default function HomePage() {
   const navigate = useNavigate();
   const { setConnection, reset } = useGameStore();
-  const { isLoggedIn, user, token } = useAuthStore();
+  const { isLoggedIn, user, token, _authChecked } = useAuthStore();
   const { requireAuth } = useAuth();
+  
+  // 只有验证通过才显示为已登录
+  const isVerifiedLogin = _authChecked && isLoggedIn;
   
   const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +29,23 @@ export default function HomePage() {
   const [roomName, setRoomName] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [error, setError] = useState('');
+
+  const handleCreateClick = async () => {
+    const { isLoggedIn: currentLoggedIn, token: currentToken } = useAuthStore.getState();
+    if (!currentLoggedIn || !currentToken) {
+      requireAuth({ silent: true });
+      return;
+    }
+
+    try {
+      // 重新校验 token 是否有效，避免过期但本地仍为登录态
+      await authApi.getUserInfo(currentToken);
+      setShowCreate(true);
+    } catch (err) {
+      // 401 将由全局 onAuthExpired 处理，这里不额外提示
+      return;
+    }
+  };
 
   useEffect(() => {
     reset(); // Clear any previous session
@@ -152,7 +172,7 @@ export default function HomePage() {
           <p className="text-xl text-slate-400 max-w-md mx-auto">
             经典7人阵营推理桌游，支持 AI 玩家
           </p>
-          {!isLoggedIn && (
+          {!isVerifiedLogin && (
             <p className="text-green-400 text-sm mt-2">
               🎁 新用户注册赠送 20 人次 AI 玩家额度
             </p>
@@ -161,25 +181,14 @@ export default function HomePage() {
 
         {/* Main Actions */}
         <div className="w-full max-w-md space-y-4 fade-in" style={{ animationDelay: '0.1s' }}>
-          {isLoggedIn ? (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
-                         transform hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              <span className="text-xl">🎮</span>
-              创建新房间
-            </button>
-          ) : (
-            <button
-              onClick={() => requireAuth({ silent: true })}
-              className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
-                         transform hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              <span className="text-xl">🔐</span>
-              登录开始游戏
-            </button>
-          )}
+          <button
+            onClick={handleCreateClick}
+            className="w-full py-4 px-6 btn-primary text-lg font-semibold rounded-2xl 
+                       transform hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <span className="text-xl">{isVerifiedLogin ? '🎮' : '🔐'}</span>
+            {isVerifiedLogin ? '创建新房间' : '登录开始游戏'}
+          </button>
         </div>
 
         {/* Room List */}

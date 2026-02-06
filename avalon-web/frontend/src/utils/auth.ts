@@ -24,13 +24,16 @@ import { toast } from '../store/toastStore';
 export function useRequireAuth() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isLoggedIn, token } = useAuthStore();
 
   const requireAuth = useCallback((options?: { 
     silent?: boolean;  // 不显示提示
     returnUrl?: string;  // 自定义返回URL
   }): boolean => {
-    if (isLoggedIn && token) {
+    // 直接从 store 获取最新状态，避免闭包中的旧值
+    const { isLoggedIn, token, _authChecked } = useAuthStore.getState();
+    
+    // token 验证尚未完成时，视为未登录
+    if (_authChecked && isLoggedIn && token) {
       return true;
     }
 
@@ -46,7 +49,7 @@ export function useRequireAuth() {
     });
     
     return false;
-  }, [isLoggedIn, token, navigate, location]);
+  }, [navigate, location]);
 
   return requireAuth;
 }
@@ -68,7 +71,20 @@ export function useAuth() {
     silent?: boolean;
     returnUrl?: string;
   }): boolean => {
-    if (isLoggedIn && token) {
+    // 直接从 store 获取最新状态，避免闭包中的旧值
+    const { isLoggedIn: currentLoggedIn, token: currentToken, _authChecked } = useAuthStore.getState();
+    
+    // token 验证尚未完成时，视为未登录
+    if (!_authChecked) {
+      const returnUrl = options?.returnUrl || location.pathname + location.search;
+      if (!options?.silent) {
+        toast.info('请先登录');
+      }
+      navigate('/login', { state: { from: returnUrl }, replace: false });
+      return false;
+    }
+    
+    if (currentLoggedIn && currentToken) {
       return true;
     }
 
@@ -84,7 +100,7 @@ export function useAuth() {
     });
     
     return false;
-  }, [isLoggedIn, token, navigate, location]);
+  }, [navigate, location]);
 
   const logout = useCallback(() => {
     storeLogout();

@@ -219,7 +219,7 @@ HOST_PROMPT_TEMPLATE = """
     - `mission`: 执行任务阶段（队员出成功/失败票）
     - `assassinate`: 终局刺杀阶段
     - `game_over`: 游戏结束
-    注意：在所有玩家完成投票和任务后，你给出总结时及时更新phase字段，避免next_player的操作指向错误phase
+    注意：当前阶段完后后，当你进行总结时就及时更新phase字段到下一阶段，避免next_player的操作指向错误phase
 
 
     ## 注意事项
@@ -535,6 +535,8 @@ class GameEngine:
             # Wait for input (with timeout)
             result = await asyncio.wait_for(future, timeout=300)  # 5 minutes timeout
             logger.info(f"收到人类输入: player={display_name}, content={result[:50]}...")
+            # 将人类输入中的 display_name 替换为 agent_name，保持Swarm内一致使用agent_name
+            result = self._replace_display_names(result)
             # 在投票和任务阶段，自动添加前缀以便在Swarm内屏蔽
             if self._current_phase in ("voting", "mission"):
                 result = f"<我的投票是: {result}>"
@@ -566,6 +568,14 @@ class GameEngine:
         for player in self.room.players:
             if player.agent_name and player.display_name:
                 result = result.replace(player.agent_name, player.display_name)
+        return result
+    
+    def _replace_display_names(self, text: str) -> str:
+        """将文本中的 display_name 替换为 agent_name（用于人类玩家输入进入Swarm前）"""
+        result = text
+        for player in self.room.players:
+            if player.agent_name and player.display_name:
+                result = result.replace(player.display_name, player.agent_name)
         return result
     
     def _replace_agent_names_in_state(self, state: dict) -> dict:

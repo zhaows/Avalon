@@ -62,32 +62,38 @@ function AnalyticsTracker() {
 // 应用启动时验证 token 有效性
 function AuthValidator() {
   const { isLoggedIn, token, logout, login, _hasHydrated } = useAuthStore();
-  const addToast = useToastStore(state => state.addToast);
+  const setAuthChecked = useAuthStore(state => state.setAuthChecked);
 
   useEffect(() => {
     // 等待 hydration 完成后再验证
     if (!_hasHydrated) return;
     
-    // 如果本地有登录状态，验证 token 是否有效
-    if (isLoggedIn && token) {
-      authApi.getUserInfo(token)
-        .then((response) => {
-          // token 有效，更新用户信息（可能有变化）
-          if (response.user) {
-            login(token, response.user);
-          }
-        })
-        .catch((error) => {
-          // token 无效，清除登录状态
-          // 注意：如果是 401，onAuthExpired 可能已经调用了 logout
-          // 这里检查一下避免重复操作
+    // 如果本地没有登录状态，直接标记验证完成
+    if (!isLoggedIn || !token) {
+      setAuthChecked(true);
+      return;
+    }
+    
+    // 验证 token 是否有效
+    authApi.getUserInfo(token)
+      .then((response) => {
+        // token 有效，更新用户信息（login 内部会设置 _authChecked: true）
+        if (response.user) {
+          login(token, response.user);
+        } else {
+          setAuthChecked(true);
+        }
+      })
+      .catch(() => {
+        // token 无效时，401 会由 onAuthExpired 回调处理 logout（内部设置 _authChecked: true）
+        // 这里仅做静默兜底（处理非401的网络错误等情况）
+        setTimeout(() => {
           const { isLoggedIn: stillLoggedIn } = useAuthStore.getState();
           if (stillLoggedIn) {
             logout();
-            addToast({ type: 'warning', title: '登录已过期，请重新登录' });
           }
-        });
-    }
+        }, 200);
+      });
   }, [_hasHydrated]); // 依赖 _hasHydrated，hydration 完成后执行
 
   return null;
@@ -99,11 +105,15 @@ function AuthExpiredHandler() {
   const addToast = useToastStore(state => state.addToast);
   
   useEffect(() => {
+    let hasExpired = false;  // 防止重复触发
     setOnAuthExpired((reason?: string) => {
+      if (hasExpired) return;  // 已处理过，忽略后续调用
+      hasExpired = true;
       logout();
-      // 显示具体原因（如被其他设备踢出）
       const title = reason || '登录已过期，请重新登录';
       addToast({ type: 'warning', title });
+      // 5秒后重置，允许新的过期检测（如重新登录后再次过期）
+      setTimeout(() => { hasExpired = false; }, 5000);
     });
   }, [logout, addToast]);
   
@@ -168,8 +178,8 @@ function App() {
       <BrowserRouter>
         <div className="min-h-screen">
           <AnalyticsTracker />
-          <AuthValidator />
           <AuthExpiredHandler />
+          <AuthValidator />
           <CrossTabSync />
           <Routes>
             <Route path="/" element={<HomePage />} />
