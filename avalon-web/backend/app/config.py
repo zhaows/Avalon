@@ -12,6 +12,12 @@ AZURE_ENDPOINT = os.getenv("AZURE_ENDPOINT", "https://wbtz-openai-service.openai
 AZURE_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT", "gpt-4.1")
 API_VERSION = os.getenv("API_VERSION", "2025-01-01-preview")
 
+# # Azure OpenAI Configuration - gpt-5.1-chat
+# AZURE_API_KEY = os.getenv("AZURE_API_KEY", "1NiJuVt27N8oo4vqVIKIZPNyzfJg3jlXFmUQpGNH0I8IPEFiP7oJJQQJ99CBACHYHv6XJ3w3AAAAACOGhy3J")
+# AZURE_ENDPOINT = os.getenv("AZURE_ENDPOINT", "https://admin-ml91cd22-eastus2.cognitiveservices.azure.com/")
+# AZURE_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT", "gpt-5.2-chat")
+# API_VERSION = os.getenv("API_VERSION", "2024-12-01-preview")
+
 # Server Configuration
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8000))

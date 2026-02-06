@@ -9,7 +9,7 @@ import re
 from typing import Dict, List, Optional, Callable, Any, Tuple
 from datetime import datetime
 
-from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
+from autogen_ext.models.openai import AzureOpenAIChatCompletionClient, OpenAIChatCompletionClient
 from autogen_agentchat.teams import Swarm
 from autogen_agentchat.conditions import TextMentionTermination, ExternalTermination
 from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
@@ -77,7 +77,7 @@ AVALON_RULES = """
     游戏率先达成 3 胜 / 3 负直接结束，无需进行全部 5 轮。
     2. 单轮游戏流程
     选队长：初始随机指定，之后按顺时针顺序轮流接任。
-    组队投票：队长按本轮任务人数组队（可含自己），全员投票，过半同意则组队成功；否则换队长重组。
+    组队投票：队长按本轮任务人数组队（可含自己），全员投票，过半同意则组队成功；否则更换队长重新组队。
     强制规则：连续 4 次组队失败，第 5 任队长可强制组队执行任务。
     执行任务：队员秘密出票，好人仅能出成功票，坏人可自由选择成功 / 失败票；队长洗牌后亮票，按失败票要求判定任务成败。
     三、终局刺杀规则
@@ -88,42 +88,39 @@ AVALON_RULES = """
 
 PLAYER_PROMPT_TEMPLATE = """
 ## 身份设定
-你是「{player_name}」，一名阿瓦隆游戏玩家。
-- 你的代号：{agent_name}（对话中你会以此代号出现）
+你是「{agent_name}」，一名阿瓦隆游戏玩家。
 - 角色：{role}
 - 阵营：{team_display}
 - 性格特点：{personality}
 
-## 你的情报<important>
+## 你的情报
 {info}
 角色要点：{role_notes}
 
 ## 游戏规则摘要
 {avalon_rules}
 
-## 玩家列表与代号对照<important>
-{name_mapping}
-
-注意：对话记录中玩家以代号（如player_1）出现，请根据上表理解每条消息来自哪位玩家。你发言时直接使用玩家名称（如{player_name}），不要使用代号。
+## 玩家列表
+{player_list}
 
 ## 行动指南
 
-### 核心策略<important>
+### 核心策略
 1. **信息收集**：关注每位玩家的发言内容、组队偏好；分析每一轮的任务结果和投票情况，积累线索
 2. **逻辑推理**：根据任务成败、投票记录、发言内容推断可疑玩家,投票是要根据自己的推理来决定
 3. **身份伪装**：适时假装某角色或透露部分信息引导局势
 4. **阵营配合**：好人找队友完成任务，坏人制造分歧破坏任务
 5. **核心要点**：每一轮好人都需要尽量保证任务成功，坏人则需要尽量搞砸任务
 
-### 发言阶段<important>
+### 发言阶段
 - 基于已知信息和局势推理，给出你的判断；不能编造事实或盲目发言；发言阶段只是交流观点，不涉及投票和任务选择
 - 直接表达观点，可质疑或支持他人，但用事实依据支撑
-- 根据性格特点{personality}来表达
+- 用你的性格特点来表达
 - 好人重点：推理找坏人，梅林隐藏身份
 - 坏人重点：伪装身份，制造分歧
 
-### 投票阶段（队伍投票/任务投票）<important>
-- 格式：<我的投票是: 同意/反对> 或 <我的投票是: 成功/失败>
+### 投票阶段（队伍投票/任务投票）
+- 格式：我的投票是: 同意/反对 或 我的投票是: 成功/失败
 - 投票是秘密的，可以与发言立场不一致
 - 组队投票时：根据已知和推理决定。好人反对含有可疑坏人的队伍；坏人反对不含队友的队伍
 - 做任务时，好人一般只出成功票；坏人需要投出失败票来破坏任务，但是也可以故意投出成功票来误导大家(谨慎选择)
@@ -132,11 +129,11 @@ PLAYER_PROMPT_TEMPLATE = """
 - 根据本轮任务人数选择队员
 - 说明选人理由，争取其他玩家支持
 
-## 输出要求<important>
+## 输出要求
 1. 只输出当前任务的内容（发言/投票/组队）
 2. 发言要简洁有力，2-4句话为宜
-3. 体现你的性格特点：{personality}
-4. 完成后自动交还主持人，不要说"handoff"
+3. 体现你的性格特点
+4. 必须回复Host交给你任务, 回复后才能交还主持人，不要说"handoff"
 """
 
 HOST_PROMPT_TEMPLATE = """
@@ -150,8 +147,7 @@ HOST_PROMPT_TEMPLATE = """
     {game_info}
 
     **重要说明：**
-    - 对话记录中玩家消息以「代号」(如 player_1) 标识来源
-    - 你与玩家交流时使用「玩家名」
+    - 使用玩家名（如 player_1）与玩家交流
     - 角色信息仅供你控制游戏流程（如找刺客执行刺杀），绝不可在对话中透露任何玩家的角色
 
     ## 核心职责
@@ -168,21 +164,19 @@ HOST_PROMPT_TEMPLATE = """
 
     ### 每轮流程
     1. **队长组队** (phase: team_select)
-    - 提示队长选择本轮所需人数的队员<important>
+    - 提示队长选择本轮所需人数的队员
     
     2. **全员发言** (phase: speaking)
-    - 从队长开始，按座位号递增顺序依次发言（到7号后循环回1号）例如：队长座位号是3，则发言顺序为 3→4→5→6→7→1→2<important>
+    - 从队长开始，按座位号递增顺序依次发言（到7号后循环回1号）例如：队长座位号是3，则发言顺序为 3→4→5→6→7→1→2
     - 每位玩家发言后继续下一位，直到全部7人发言完毕
     
     3. **全员投票** (phase: voting)
-    - 从队长开始，按座位号递增顺序依次投票（到7号后循环回1号）例如：队长座位号是3，则投票顺序为 3→4→5→6→7→1→2<important>
-    - 每次只让一位玩家投票，收到明确的"同意"或"反对"后再进行下一位，不要透露玩家的投票结果<important>
-    - 如果玩家未明确表态，继续询问直到得到投票结果
+    - 从队长开始，按座位号递增顺序依次投票（到7号后循环回1号）例如：队长座位号是3，则投票顺序为 3→4→5→6→7→1→2
+    - 每次只让一位玩家投票(同意/反对)，不要透露玩家的投票结果，玩家投票格式为：我的投票是: 同意/反对
     - 全部7人投票结束后，必须总结投票结果：X票同意，X票反对，组队成功/失败
     
     4. **执行任务** (phase: mission)
-    - 仅队员参与，按座位号递增顺序依次收集任务票（成功/失败），不要透露玩家的任务票
-    - 如果未得到玩家明确表态，则继续询问直到得到任务结果
+    - 仅队员参与，按座位号递增顺序依次收集任务票（成功/失败），不要透露玩家的任务票, 玩家投票格式为：我的投票是: 成功/失败
     - 任务结束后只公布：X张成功票，X张失败票，任务成功/失败
     
     5. **轮次结算**
@@ -199,13 +193,16 @@ HOST_PROMPT_TEMPLATE = """
     - 公布所有玩家角色
     - 输出 terminate
 
-    ## 输出格式（必须严格遵守）<important>
+    ## 输出格式（必须严格遵守）
 
     ```json
     {{
         "phase": "team_select|speaking|voting|mission|assassinate|game_over",
         "mission_round": 当前轮次,
         "captain": "队长名",
+        "all_players": ["玩家1", "玩家2", "玩家3", "玩家4", "玩家5", "玩家6", "玩家7"],
+        "vote_info": {{"玩家1": "同意/反对", "玩家2": "同意/反对", ...}},  # 仅在voting阶段包含
+        "task_info": {{"玩家1": "成功/失败", "玩家2": "成功/失败", ...}},  # 仅在mission阶段包含
         "team_members": ["队员1", "队员2"],
         "mission_success_count": 成功任务数,
         "mission_fail_count": 失败任务数,
@@ -213,7 +210,7 @@ HOST_PROMPT_TEMPLATE = """
         "next_player": "下一个行动的玩家名"
     }}
     ```
-    然后是你对玩家说的话（简洁明了, 表述清楚任务, 仅提及当前玩家，不要提前规划）。
+    然后是你对玩家说的话（简洁明了, 表述清楚任务, 仅提及当前玩家，不要提前规划，不能省略）。
 
     **phase字段必须是以下值之一：**
     - `team_select`: 队长组队阶段
@@ -222,12 +219,13 @@ HOST_PROMPT_TEMPLATE = """
     - `mission`: 执行任务阶段（队员出成功/失败票）
     - `assassinate`: 终局刺杀阶段
     - `game_over`: 游戏结束
+    注意：在所有玩家完成投票和任务后，你给出总结时及时更新phase字段，避免next_player的操作指向错误phase
 
 
     ## 注意事项
-    - 完成引导后自动交给对应玩家，并向玩家清晰的说明任务，不要说"handoff"<important>
-    - 发言简洁，避免重复总结玩家已说过的内容，你的发言不能使用玩家代号，必须使用玩家名称
-    - 保持游戏节奏流畅
+    - 必须完成引导总结后，才能交给对应玩家，并向玩家清晰的说明任务，不要说"handoff"
+    - 发言简洁，避免重复总结玩家已说过的内容
+    - 关注游戏规则、保持游戏节奏流畅
 """
 
 # 玩家人设列表（随机分配给玩家，与角色无关）
@@ -311,11 +309,15 @@ class FilterVoteInfoContext(UnboundedChatCompletionContext):
                 if message.source != "Host":
                     if message.content and "我的投票是" in message.content:
                         message.content = "[内容已隐藏]"
+                if message.content:
+                    _, message.content = GameEngine._parse_host_output(message.content)
             # filter transfer messages 
-            if message and message.content and isinstance(message.content, list):
-                continue
-            if message and message.content and message.content.startswith("Transferred to"):
-                continue
+            # if message and message.content and isinstance(message.content, list):
+            #     continue
+            # if message and message.content and message.content.startswith("Transferred to"):
+            #     continue
+            # if message and hasattr(message, "content") and isinstance(message.content, str):
+            #     _, message.content = GameEngine._parse_host_output(message.content)
             messages_out.append(message)
         return messages_out
 
@@ -346,12 +348,54 @@ class GameEngine:
         self.model_client = AzureOpenAIChatCompletionClient(
             api_key=AZURE_API_KEY,
             azure_endpoint=AZURE_ENDPOINT,
-            model="gpt-4.1",
+            model="gpt-5",
             azure_deployment=AZURE_DEPLOYMENT,
             api_version=API_VERSION,
             parallel_tool_calls=False,
-            max_tokens=4096,  # 设置最大输出token数，避免截断
+            max_completion_tokens=4096,  # 设置最大输出token数，避免截断
         )
+        # self.model_client = OpenAIChatCompletionClient(
+        #     model = "deepseek-v3.2",
+        #     api_key = "sk-2bfbfa2832074ac4a2f43ff624f597d3",
+        #     base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        #     model_info = {
+        #         "vision": False,
+        #         "function_calling": True,
+        #         "json_output": True,
+        #         "family": "deepseek",
+        #         "structured_output": True,
+        #     },
+        #     parallel_tool_calls=False,
+        #     max_tokens=4096
+        # )
+        # self.model_client = OpenAIChatCompletionClient(
+        #     model = "glm-4.7",
+        #     api_key = "sk-2bfbfa2832074ac4a2f43ff624f597d3",
+        #     base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        #     model_info = {
+        #         "vision": False,
+        #         "function_calling": True,
+        #         "json_output": True,
+        #         "family": "glm",
+        #         "structured_output": True,
+        #     },
+        #     parallel_tool_calls=False,
+        #     max_tokens=4096
+        # )
+        # self.model_client = OpenAIChatCompletionClient(
+        #     model = "kimi-k2.5",
+        #     api_key = "sk-2bfbfa2832074ac4a2f43ff624f597d3",
+        #     base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        #     model_info = {
+        #         "vision": False,
+        #         "function_calling": True,
+        #         "json_output": True,
+        #         "family": "kimi",
+        #         "structured_output": True,
+        #     },
+        #     parallel_tool_calls=False,
+        #     max_tokens=4096
+        # )
     
     async def stop_game(self):
         """手动停止游戏，通过 ExternalTermination 终止 Swarm 任务"""
@@ -414,27 +458,33 @@ class GameEngine:
             logger.debug(f"角色分配: {player.display_name} -> {role}")
         
         # Build players_info with role-specific knowledge
-        evil_players = [p.display_name for p in self.room.players 
+        # 使用 agent_name 构建情报（提示词中使用agent_name）
+        # 首先构建 agent_name -> role 映射
+        agent_to_role = {p.agent_name: self.roles_assignment[p.display_name] for p in self.room.players}
+        
+        evil_players = [p.agent_name for p in self.room.players 
                        if self.roles_assignment[p.display_name] in ["刺客", "莫甘娜", "奥伯伦"]]
-        merlin_player = [p.display_name for p in self.room.players 
+        merlin_player = [p.agent_name for p in self.room.players 
                         if self.roles_assignment[p.display_name] == "梅林"][0]
-        morgana_player = [p.display_name for p in self.room.players 
+        morgana_player = [p.agent_name for p in self.room.players 
                          if self.roles_assignment[p.display_name] == "莫甘娜"][0]
         
         for player in self.room.players:
             role = self.roles_assignment[player.display_name]
             config = ROLE_CONFIG[role]
             
-            # Determine role-specific info
+            # Determine role-specific info（使用agent_name）
             if role == "梅林":
                 info = f"知道所有坏人身份, 即{', '.join(evil_players)}是坏人"
             elif role == "派西维尔":
                 info = f"知道{merlin_player}和{morgana_player}是梅林和莫甘娜, 但是不知道谁是谁"
             elif role == "刺客":
-                other_evil = [e for e in evil_players if e != player.display_name and self.roles_assignment[e] != "奥伯伦"]
+                # 刺客能看到除奥伯伦外的其他坏人
+                other_evil = [e for e in evil_players if e != player.agent_name and agent_to_role[e] != "奥伯伦"]
                 info = f"知道{', '.join(other_evil)}是坏人" if other_evil else "无"
             elif role == "莫甘娜":
-                other_evil = [e for e in evil_players if e != player.display_name and self.roles_assignment[e] != "奥伯伦"]
+                # 莫甘娜能看到除奥伯伦外的其他坏人
+                other_evil = [e for e in evil_players if e != player.agent_name and agent_to_role[e] != "奥伯伦"]
                 info = f"知道{', '.join(other_evil)}是坏人" if other_evil else "无"
             elif role == "奥伯伦":
                 info = "无"
@@ -510,6 +560,28 @@ class GameEngine:
                 return player
         return None
     
+    def _replace_agent_names(self, text: str) -> str:
+        """将文本中的 agent_name 替换为 display_name"""
+        result = text
+        for player in self.room.players:
+            if player.agent_name and player.display_name:
+                result = result.replace(player.agent_name, player.display_name)
+        return result
+    
+    def _replace_agent_names_in_state(self, state: dict) -> dict:
+        """将 game_state 字典中的 agent_name 替换为 display_name"""
+        result = {}
+        for key, value in state.items():
+            if isinstance(value, str):
+                result[key] = self._replace_agent_names(value)
+            elif isinstance(value, list):
+                result[key] = [self._replace_agent_names(v) if isinstance(v, str) else v for v in value]
+            elif isinstance(value, dict):
+                result[key] = {k: self._replace_agent_names(v) if isinstance(v, str) else v for k, v in value.items()}
+            else:
+                result[key] = value
+        return result
+    
     def provide_human_input(self, player_name: str, message: str):
         """
         Provide input for a waiting human player.
@@ -561,16 +633,15 @@ class GameEngine:
                 # Use AI agent for AI players
                 # 计算阵营显示名称
                 team_display = "好人方（蓝方）" if info["role"] in ["梅林", "派西维尔", "忠臣"] else "坏人方（红方）"
-                # 构建名称映射表，让AI知道agent_name和display_name的对应关系
-                name_mapping_str = "\n".join([f"- {p.agent_name} = {p.display_name}" for p in self.room.players])
-                # 在提示词中使用display_name让AI知道自己的显示名
+                # 构建玩家列表（仅使用agent_name）
+                player_list_str = "\n".join([f"- {p.agent_name}（座位{p.seat}）" for p in self.room.players])
+                # 在提示词中直接使用agent_name
                 prompt = PLAYER_PROMPT_TEMPLATE.format(
                     avalon_rules=AVALON_RULES,
-                    name_mapping=name_mapping_str,  # 名称映射表
-                    player_name=display_name,   # 使用显示名
-                    agent_name=agent_name,      # 让AI知道自己的代号
+                    player_list=player_list_str,  # 玩家列表
+                    agent_name=agent_name,        # 使用agent_name
                     role=info["role"],
-                    team_display=team_display,  # 阵营显示
+                    team_display=team_display,    # 阵营显示
                     personality=info["personality"],
                     info=info["info"],
                     role_notes=info["role_notes"]
@@ -588,12 +659,12 @@ class GameEngine:
                 )
             player_agents.append(agent)
         
-        # Create host agent - 使用display_name映射让Host知道玩家名字
+        # Create host agent - 直接使用agent_name
         # 构建玩家信息表，格式化为易读的表格
-        player_table_lines = ["| 座位号 | 代号(对话标识) | 玩家名(交流用) | 角色(仅供流程控制) |", "| --- | --- | --- | --- |"]
+        player_table_lines = ["| 座位号 | 玩家名 | 角色(仅供流程控制) |", "| --- | --- | --- |"]
         for p in self.room.players:
             role = self.roles_assignment[p.display_name]
-            player_table_lines.append(f"| {p.seat} | {p.agent_name} | {p.display_name} | {role} |")
+            player_table_lines.append(f"| {p.seat} | {p.agent_name} | {role} |")
         player_table = "\n".join(player_table_lines)
         
         host_prompt = HOST_PROMPT_TEMPLATE.format(
@@ -655,12 +726,14 @@ class GameEngine:
         # Send role info to each player (will be filtered by frontend per player)
         for player in self.room.players:
             info = self.players_info[player.agent_name]
+            # 将 info 中的 agent_name 替换为 display_name 用于前端展示
+            display_info = self._replace_agent_names(info["info"])
             await self.broadcast("role_assigned", {
                 "player_id": player.id,
                 "player_name": player.display_name,  # 使用display_name
                 "role": info["role"],
                 "team": ROLE_CONFIG[info["role"]]["team"],
-                "info": info["info"],
+                "info": display_info,  # 使用替换后的 info
                 "personality": info["personality"]  # 玩家人设
             }, player.id, player.display_name)
         
@@ -702,15 +775,19 @@ class GameEngine:
                     
                     # 处理Host的输出 - 解析JSON状态
                     if source == "Host":
-                        game_state, message_text = self._parse_host_output(content)
+                        game_state, message_text = GameEngine._parse_host_output(content)
                         if game_state:
                             # 更新当前阶段
                             if "phase" in game_state:
                                 self._current_phase = game_state["phase"]
+                            # 将 game_state 中的 agent_name 替换为 display_name
+                            game_state = self._replace_agent_names_in_state(game_state)
                             # 广播游戏状态更新
                             await self.broadcast("game_state_update", game_state)
                         # 使用解析后的消息文本，或者原始内容
                         display_content = message_text if message_text else content
+                        # 将消息内容中的 agent_name 替换为 display_name
+                        display_content = self._replace_agent_names(display_content)
                     else:
                         # 将agent_name转换为display_name用于显示
                         player = self._get_player_by_agent_name(source)
@@ -719,6 +796,9 @@ class GameEngine:
                         # 在投票和任务阶段，屏蔽玩家的发言内容
                         if self._current_phase in ("voting", "mission"):
                             display_content = "[投票已提交]"
+                        else:
+                            # 玩家消息内容中也可能提到其他玩家，进行替换
+                            display_content = self._replace_agent_names(display_content)
 
                     # Broadcast message - 使用display_source而不是agent_name
                     await self.broadcast("game_message", {
@@ -737,7 +817,7 @@ class GameEngine:
                         })
                         break
                     # sleep 根据display_content长度调整
-                    sleep_time = min(max(len(display_content) / 30.0, 0.5), 8.0)
+                    sleep_time = min(max(len(display_content) / 50.0, 0.5), 8.0)
                     await asyncio.sleep(sleep_time)
                         
                 except Exception as e:
@@ -755,7 +835,8 @@ class GameEngine:
                     logger.info(f"Agent {agent.name} 上下文：{await agent._model_context.get_messages()}")
             self.is_running = False
     
-    def _parse_host_output(self, content: str) -> Tuple[Optional[dict], str]:
+    @staticmethod
+    def _parse_host_output(content: str) -> Tuple[Optional[dict], str]:
         """
         从Host的输出中解析JSON状态和消息文本。
         返回: (game_state_dict, message_text)
@@ -787,11 +868,13 @@ class GameEngine:
                 agent_name = player.agent_name
                 info = self.players_info.get(agent_name)
                 if info:
+                    # 将 info 中的 agent_name 替换为 display_name 用于前端展示
+                    display_info = self._replace_agent_names(info["info"])
                     return {
                         "role": info["role"],
                         "display_name": info["display_name"],
                         "team": ROLE_CONFIG[info["role"]]["team"],
-                        "info": info["info"],
+                        "info": display_info,  # 使用替换后的 info
                         "role_notes": info["role_notes"],
                         "personality": info["personality"]  # 玩家人设
                     }
